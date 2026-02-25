@@ -1,0 +1,53 @@
+@use '../styles/mixins' as m;
+
+.toolbar {
+    @include m.glassPanel;
+    padding: 12px;
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    align-items: end;
+    position: sticky;
+    top: 0;
+    z-index: 4;
+    backdrop-filter: blur(10px);
+}
+
+.list {
+    margin-top: 12px;
+    display: grid;
+    gap: 10px;
+}
+
+.cardLink {
+    text-decoration: none;
+    color: inherit;
+    @include m.card;
+    padding: 12px;
+    display: grid;
+    gap: 6px;
+    transition: transform 120ms ease, border-color 120ms ease;
+}
+
+.cardLink:hover {
+    transform: translateY(-1px);
+    border-color: rgba(255, 255, 255, 0.22);
+}
+
+.topRow {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    align-items: baseline;
+}
+
+.mapName {
+    font-weight: 900;
+    font-size: var(--fs3);
+}
+
+.right {
+    color: var(--muted);
+    font-size: var(--fs1);
+}

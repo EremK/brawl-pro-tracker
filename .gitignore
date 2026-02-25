@@ -1,0 +1,133 @@
+# =========================
+# OS / Editor
+# =========================
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/launch.json
+!.vscode/tasks.json
+
+.idea/
+*.iml
+
+# =========================
+# Logs
+# =========================
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# =========================
+# Dependencies
+# =========================
+node_modules/
+**/node_modules/
+
+# =========================
+# Build outputs
+# =========================
+dist/
+build/
+out/
+coverage/
+.nyc_output/
+**/dist/
+**/build/
+**/out/
+**/coverage/
+
+# NestJS / TS incremental build info
+*.tsbuildinfo
+
+# =========================
+# Env / secrets
+# =========================
+.env
+.env.*
+!.env.example
+!.env.template
+
+# =========================
+# Caches
+# =========================
+.cache/
+.parcel-cache/
+.eslintcache
+.stylelintcache
+
+# TypeScript / tooling caches
+.turbo/
+.nx/
+.vite/
+.next/
+.nuxt/
+.svelte-kit/
+
+# =========================
+# Package managers
+# =========================
+# Keep lockfile(s) tracked (do NOT ignore them)
+# pnpm-lock.yaml
+# package-lock.json
+# yarn.lock
+
+.pnpm-store/
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions
+
+# =========================
+# Runtime uploads / local data
+# =========================
+uploads/
+storage/
+tmp/
+temp/
+**/uploads/
+**/storage/
+**/tmp/
+**/temp/
+
+# =========================
+# Databases / local dev artifacts
+# =========================
+*.sqlite
+*.sqlite3
+*.db
+*.dump
+*.bak
+
+# =========================
+# Docker / local volumes (if you use them)
+# =========================
+docker-data/
+**/docker-data/
+
+# =========================
+# Misc
+# =========================
+*.tgz
+*.zip
+
+**/.docker/
+*.tgz
+bpt-upload.tgz
+docker-compose.override.yml
+
+# DB dumps
+*.sql
+*.dump
+*.bak

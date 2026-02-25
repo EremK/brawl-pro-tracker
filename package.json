@@ -1,0 +1,20 @@
+{
+    "name": "brawl-pro-tracker",
+    "private": true,
+    "workspaces": [
+        "backend",
+        "frontend"
+    ],
+    "scripts": {
+        "dev": "concurrently -n BACKEND,FRONTEND -c auto \"npm:dev:backend\" \"npm:dev:frontend\"",
+        "dev:backend": "npm --workspace backend run start:dev",
+        "dev:frontend": "npm --workspace frontend run dev",
+        "build": "npm --workspace backend run build && npm --workspace frontend run build",
+        "start": "npm --workspace backend run start",
+        "install:all": "npm install",
+        "preview:frontend": "npm --workspace frontend run preview"
+    },
+    "devDependencies": {
+        "concurrently": "^8.2.2"
+    }
+}

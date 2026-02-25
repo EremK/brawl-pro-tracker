@@ -1,0 +1,34 @@
+@use '../styles/mixins' as m;
+
+.grid {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: 1fr 1fr;
+}
+
+@media (max-width: 980px) {
+    .grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.block {
+    @include m.glassPanel;
+    padding: var(--pad2);
+}
+
+.row {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    align-items: end;
+}
+
+.output {
+    @include m.card;
+    padding: 12px;
+    overflow: auto;
+    max-height: 42vh;
+    @include m.thinScroll;
+    background: rgba(0, 0, 0, 0.25);
+}

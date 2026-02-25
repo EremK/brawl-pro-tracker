@@ -1,0 +1,32 @@
+@use '../styles/mixins' as m;
+
+.wrap {
+    @include m.glassPanel;
+    padding: var(--pad2);
+}
+
+.formRow {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    align-items: end;
+}
+
+.list {
+    margin-top: 12px;
+    display: grid;
+    gap: 10px;
+    max-height: calc(100vh - 220px);
+    overflow: auto;
+    padding-right: 6px;
+    @include m.thinScroll;
+}
+
+.item {
+    @include m.card;
+    padding: 12px;
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}

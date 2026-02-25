@@ -1,0 +1,234 @@
+@use './tokens';
+@use './mixins' as m;
+
+* {
+    box-sizing: border-box;
+}
+
+html,
+body {
+    min-height: 100%;
+}
+
+body {
+    margin: 0;
+    color: var(--text);
+    font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    background: transparent;
+}
+
+html::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+
+    background:
+        radial-gradient(1200px 800px at 20% 10%, rgba(139, 92, 246, 0.16), transparent 45%),
+        radial-gradient(900px 700px at 80% 10%, rgba(110, 231, 255, 0.14), transparent 50%),
+        linear-gradient(180deg, var(--bg), var(--bg2));
+
+    background-repeat: no-repeat;
+}
+
+a {
+    color: inherit;
+}
+
+.container {
+    width: min(1200px, calc(100% - 24px));
+    margin: 0 auto;
+    padding: 16px 0 22px;
+}
+
+.pageTitle {
+    font-size: var(--fs4);
+    font-weight: 800;
+    letter-spacing: 0.2px;
+    margin: 0;
+}
+
+.muted {
+    color: var(--muted);
+}
+
+.muted2 {
+    color: var(--muted2);
+}
+
+.hr {
+    height: 1px;
+    background: var(--border);
+    border: 0;
+    margin: 10px 0;
+}
+
+.panel {
+    @include m.glassPanel;
+    padding: var(--pad2);
+}
+
+.card {
+    @include m.card;
+    padding: var(--pad);
+}
+
+.badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: rgba(255, 255, 255, 0.03);
+    font-size: var(--fs0);
+    color: var(--muted);
+}
+
+.badgeDot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--brand);
+    box-shadow: 0 0 0 3px rgba(110, 231, 255, 0.14);
+}
+
+.kpis {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.kpi {
+    @include m.card;
+    padding: 10px 12px;
+    min-width: 150px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.kpiLabel {
+    font-size: var(--fs0);
+    color: var(--muted2);
+}
+
+.kpiValue {
+    font-size: var(--fs3);
+    font-weight: 800;
+}
+
+.rowBetween {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.uiField {
+    display: grid;
+    gap: 6px;
+    min-width: 150px;
+}
+
+.uiLabel {
+    font-size: var(--fs0);
+    color: var(--muted2);
+}
+
+.uiInput,
+.uiSelect {
+    height: 40px;
+    padding: 0 12px;
+    border-radius: 12px;
+    border: 1px solid var(--border2);
+    background: rgba(0, 0, 0, 0.20);
+    color: var(--text);
+}
+
+.uiInput:focus,
+.uiSelect:focus {
+    @include m.focusRing;
+}
+
+.uiHelp {
+    font-size: var(--fs0);
+    color: var(--muted2);
+}
+
+.btn {
+    height: 40px;
+    border-radius: 12px;
+    border: 1px solid var(--border2);
+    background: rgba(255, 255, 255, 0.03);
+    color: var(--text);
+    padding: 0 12px;
+    cursor: pointer;
+    transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+
+.btn:hover {
+    transform: translateY(-1px);
+    border-color: rgba(255, 255, 255, 0.22);
+}
+
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.btnPrimary {
+    border: 1px solid rgba(110, 231, 255, 0.35);
+    background: linear-gradient(180deg, rgba(110, 231, 255, 0.15), rgba(139, 92, 246, 0.10));
+}
+
+.btnDanger {
+    border: 1px solid rgba(251, 113, 133, 0.35);
+    background: rgba(251, 113, 133, 0.08);
+}
+
+.err {
+    border: 1px solid rgba(251, 113, 133, 0.25);
+    background: rgba(251, 113, 133, 0.08);
+    padding: 10px 12px;
+    border-radius: 12px;
+    color: var(--text);
+}
+
+.tableList {
+    display: grid;
+    gap: 8px;
+}
+
+.listScroll {
+    overflow: auto;
+    padding-right: 6px;
+    @include m.thinScroll;
+}
+
+.statLine {
+    color: var(--muted);
+    font-size: var(--fs0);
+}
+
+.pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.22);
+    border: 1px solid var(--border);
+    font-size: var(--fs0);
+    color: var(--muted);
+}
+
+.wrGood {
+    color: var(--good);
+}
+
+.wrBad {
+    color: var(--bad);
+}
