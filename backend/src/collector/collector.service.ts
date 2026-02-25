@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, LessThan } from 'typeorm';
 import axios from 'axios';
 import { ConfigService } from '@nestjs/config';
 import { createHash } from 'crypto';
@@ -151,6 +151,7 @@ export class CollectorService {
     // every 2 minutes (good for personal use)
     @Cron('*/15 * * * *')
     async tick() {
+        if (process.env.COLLECTOR_ENABLED !== 'true') return;
         const tracked = await this.trackedRepo.find({ where: { active: true } });
         if (!tracked.length) return;
 
@@ -161,6 +162,28 @@ export class CollectorService {
                 this.log.warn(`pull failed for ${p.tag}: ${e?.message ?? e}`);
             }
         }
+    }
+
+    @Cron('10 3 * * *')
+    async cleanupOldBattles() {
+        const days = Number(this.cfg.get<string>('DATA_RETENTION_DAYS') ?? 60);
+        const safeDays = Number.isFinite(days) ? Math.max(1, Math.min(365, days)) : 60;
+
+        const cutoff = new Date(Date.now() - safeDays * 24 * 60 * 60 * 1000);
+
+        const delPicks = await this.picksRepo.query(
+            `DELETE FROM "battle_team_picks"
+     WHERE "battleId" IN (
+       SELECT "battleId" FROM "battles" WHERE "battleTime" < $1
+     )`,
+            [cutoff],
+        );
+
+        const delBattles = await this.battleRepo.delete({ battleTime: LessThan(cutoff) });
+
+        this.log.log(
+            `cleanup: retention=${safeDays}d cutoff=${cutoff.toISOString()} battlesDeleted=${delBattles.affected ?? 0}`,
+        );
     }
 
     async collectNowForAll(): Promise<{ processed: number }> {
