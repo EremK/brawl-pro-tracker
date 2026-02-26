@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { api } from '../shared/api'
 import type { BrawlerLite, MapItem, RankedHelperResponse } from '../shared/api'
 import s from './RankedHelperPage.module.scss'
@@ -44,6 +44,13 @@ function BrawlerPicker({
         if (!s) return brawlers
         return brawlers.filter(b => b.name.toLowerCase().includes(s))
     }, [brawlers, q])
+
+    const handlePick = (id: number) => {
+        // if it was disabled, ignore (safety)
+        if (pickedSet.has(id) || picked.length >= max) return
+        onPick(id)
+        setQ('') // ✅ clear search after picking
+    }
 
     return (
         <div className={s.picker}>
@@ -103,7 +110,7 @@ function BrawlerPicker({
                             type="button"
                             className={s.iconBtn}
                             disabled={disabled}
-                            onClick={() => onPick(b.id)}
+                            onClick={() => handlePick(b.id)}
                             title={b.name}
                         >
                             <img
@@ -148,7 +155,10 @@ export default function RankedHelperPage() {
             .then((res) => {
                 if (!alive) return
                 setMaps(res.items ?? [])
-                if (!map && res.items?.[0]?.map) setMap(res.items[0].map)
+                if (!map && res.items?.[0]?.map) {
+                    setMap(res.items[0].map)
+                    setMode(res.items[0].mode ?? '')
+                }
             })
             .catch((e) => {
                 if (!alive) return
@@ -204,6 +214,28 @@ export default function RankedHelperPage() {
 
     const pickedAll = useMemo(() => new Set([...ally, ...enemy]), [ally, enemy])
 
+    const groupedMaps = useMemo(() => {
+        const byMode = new Map<string, string[]>()
+
+        for (const it of maps) {
+            const m = (it.mode ?? 'unknown').trim() || 'unknown'
+            const mp = (it.map ?? '').trim()
+            if (!mp) continue
+
+            const arr = byMode.get(m) ?? []
+            if (!arr.includes(mp)) arr.push(mp)
+            byMode.set(m, arr)
+        }
+
+        // sort maps inside each mode
+        for (const [, arr] of byMode) arr.sort((a, b) => a.localeCompare(b))
+
+        // sort modes
+        const modes = Array.from(byMode.keys()).sort((a, b) => a.localeCompare(b))
+
+        return modes.map((m) => ({ mode: m, maps: byMode.get(m)! }))
+    }, [maps])
+
     const addPick = (team: SlotTeam, id: number) => {
         if (pickedAll.has(id)) return
         if (team === 'ally') setAlly((prev) => (prev.length >= 3 ? prev : [...prev, id]))
@@ -221,14 +253,34 @@ export default function RankedHelperPage() {
                 <div className={s.top}>
                     <div>
                         <h2 className={s.title}>Ranked Helper</h2>
-                        <div className={s.sub}>Map-aware picks • synergy • counters • ranked only</div>
+                        <div className={s.sub}>Map-aware picks • synergies • counters</div>
                     </div>
                     <div className={s.controls}>
                         <label className={s.field}>
                             <div className={s.label}>Map</div>
-                            <select className={s.select} value={map} onChange={(e) => setMap(e.target.value)}>
-                                {Array.from(new Set(maps.map(m => m.map))).map((m) => (
-                                    <option key={m} value={m}>{m}</option>
+                            <select
+                                className={s.select}
+                                value={`${(mode ?? '')}||${map}`}
+                                onChange={(e) => {
+                                    const v = e.target.value
+                                    if (v.startsWith('__hdr__')) return 
+                                    const [m, mp] = v.split('||')
+                                    setMode(m === 'unknown' ? '' : (m ?? ''))
+                                    setMap(mp ?? '')
+                                }}
+                            >
+                                {groupedMaps.map((g) => (
+                                    <Fragment key={g.mode}>
+                                        <option value={`__hdr__${g.mode}`} disabled>
+                                            --- {g.mode} ---
+                                        </option>
+
+                                        {g.maps.map((mp) => (
+                                            <option key={`${g.mode}||${mp}`} value={`${g.mode}||${mp}`}>
+                                                {mp}
+                                            </option>
+                                        ))}
+                                    </Fragment>
                                 ))}
                             </select>
                         </label>
@@ -241,15 +293,6 @@ export default function RankedHelperPage() {
                                 max={30}
                                 value={days}
                                 onChange={(e) => setDays(Math.max(1, Math.min(30, Number(e.target.value) || 7)))}
-                            />
-                        </label>
-                        <label className={s.field}>
-                            <div className={s.label}>Mode (optional)</div>
-                            <input
-                                className={s.input}
-                                value={mode}
-                                onChange={(e) => setMode(e.target.value)}
-                                placeholder="e.g. brawlBall"
                             />
                         </label>
                         <button className={s.btn} type="button" onClick={fetchSuggest} disabled={loading || !map}>
@@ -314,10 +357,10 @@ export default function RankedHelperPage() {
                                             {enemy.length > 0 && (
                                                 <div className={s.block}>
                                                     <div className={s.blockTitle}>Best counters</div>
-                                                    {it.counters.length === 0 ? (
+                                                    {((it as any).counters?.positive ?? []).length === 0 ? (
                                                         <div className={s.muted2}>No positive counter data yet.</div>
                                                     ) : (
-                                                        it.counters.slice(0, 3).map((c) => (
+                                                        ((it as any).counters?.positive ?? []).slice(0, 3).map((c: any) => (
                                                             <div key={c.enemyBrawlerId} className={s.line}>
                                                                 <span className={s.k}>vs {c.enemyBrawler}</span>
                                                                 <span className={pickWrBadge(c.winRate)}>
@@ -333,10 +376,10 @@ export default function RankedHelperPage() {
                                             {ally.length > 0 && (
                                                 <div className={s.block}>
                                                     <div className={s.blockTitle}>Best synergy</div>
-                                                    {it.synergies.length === 0 ? (
+                                                    {((it as any).synergies?.positive ?? []).length === 0 ? (
                                                         <div className={s.muted2}>No positive synergy data yet.</div>
                                                     ) : (
-                                                        it.synergies.slice(0, 2).map((x) => (
+                                                        ((it as any).synergies?.positive ?? []).slice(0, 2).map((x: any) => (
                                                             <div key={x.mateBrawlerId} className={s.line}>
                                                                 <span className={s.k}>with {x.mateBrawler}</span>
                                                                 <span className={pickWrBadge(x.winRate)}>

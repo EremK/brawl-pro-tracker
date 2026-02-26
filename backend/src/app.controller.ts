@@ -53,6 +53,21 @@ function logWeight(n: number) {
   return Math.log10(n + 1) / 3 // 0..1-ish for 1..1000
 }
 
+function betaSmoothWinRate(wins: number, games: number, a = 5, b = 5) {
+  // Posterior mean of Beta(a,b) prior with wins/losses evidence
+  // games=0 => a/(a+b) = 0.5 when a=b
+  const w = Math.max(0, wins || 0)
+  const g = Math.max(0, games || 0)
+  return (w + a) / (g + a + b)
+}
+
+function signedComponentFromWR(wr: number, games: number) {
+  // wr: 0..1, games: >=0
+  // returns [-1..1] scaled by sample confidence
+  const signed = clamp((wr - 0.5) * 2, -1, 1) // -1..1
+  return signed * logWeight(games)            // confidence scaling
+}
+
 @Controller()
 export class AppController {
   constructor(
@@ -134,6 +149,13 @@ export class AppController {
     const daysN = Math.max(1, Math.min(30, Number(days) || 7))
     const since = new Date(Date.now() - daysN * 24 * 60 * 60 * 1000)
     const lim = Math.max(6, Math.min(30, Number(limit) || 12))
+
+    // tuning
+    const PRIOR_A = 5
+    const PRIOR_B = 5
+
+    // don’t punish/reward tiny samples for counters/synergy
+    const MIN_PAIR_GAMES = 2
 
     const ally = uniq3(parseIdsCsv(allyCsv))
     const enemy = uniq3(parseIdsCsv(enemyCsv))
@@ -311,25 +333,34 @@ export class AppController {
 
       const picks = Number(r.picks) || 0
       const wins = Number(r.wins) || 0
-      const wr = picks ? wins / picks : 0
-
-      const baseComp = clamp((wr - 0.5) * 2, -1, 1) * logWeight(picks)
+      const wrRaw = picks ? wins / picks : 0
+      const wr = betaSmoothWinRate(wins, picks, PRIOR_A, PRIOR_B)
+      const baseComp = signedComponentFromWR(wr, picks)
 
       // counters (positive only)
+      // counters (positive + negative)
       let counterComp = 0
-      let counterDetails: any[] = []
-      if (enemy.length) {
-        const arr = (counterByCand.get(id) ?? []).map(x => ({
-          ...x,
-          winRate: x.games ? x.wins / x.games : 0,
-        }))
-        const positive = arr.filter(x => x.winRate > 0.5)
-        if (positive.length) {
-          const contribs = positive.map(x => clamp((x.winRate - 0.5) * 2, -1, 1) * logWeight(x.games))
-          counterComp = contribs.reduce((a, b) => a + b, 0) / contribs.length
+      let counterDetailsPos: any[] = []
+      let counterDetailsNeg: any[] = []
 
-          counterDetails = positive
-            .sort((a, b) => (b.winRate - a.winRate) || (b.games - a.games))
+      if (enemy.length) {
+        const arr = (counterByCand.get(id) ?? [])
+          .map(x => {
+            const wrRaw = x.games ? x.wins / x.games : 0
+            const wrSm = betaSmoothWinRate(x.wins, x.games, PRIOR_A, PRIOR_B)
+            const comp = signedComponentFromWR(wrSm, x.games)
+            return { ...x, winRate: wrRaw, winRateSmoothed: wrSm, component: comp }
+          })
+          .filter(x => x.games >= MIN_PAIR_GAMES)
+
+        if (arr.length) {
+          // aggregate: mean of signed components (includes negative penalties)
+          counterComp = arr.reduce((s, x) => s + x.component, 0) / arr.length
+
+          // top positives
+          counterDetailsPos = arr
+            .filter(x => x.component > 0)
+            .sort((a, b) => (b.component - a.component) || (b.games - a.games))
             .slice(0, 3)
             .map(x => ({
               enemyBrawlerId: x.enemyId,
@@ -337,25 +368,49 @@ export class AppController {
               games: x.games,
               wins: x.wins,
               winRate: x.winRate,
+              winRateSmoothed: x.winRateSmoothed,
+              component: x.component,
+            }))
+
+          // top negatives (penalties)
+          counterDetailsNeg = arr
+            .filter(x => x.component < 0)
+            .sort((a, b) => (a.component - b.component) || (b.games - a.games)) // most negative first
+            .slice(0, 3)
+            .map(x => ({
+              enemyBrawlerId: x.enemyId,
+              enemyBrawler: this.collector.brawlerName(x.enemyId),
+              games: x.games,
+              wins: x.wins,
+              winRate: x.winRate,
+              winRateSmoothed: x.winRateSmoothed,
+              component: x.component,
             }))
         }
       }
 
       // synergy (positive only)
+      // synergy (positive + negative)
       let synergyComp = 0
-      let synergyDetails: any[] = []
-      if (ally.length) {
-        const arr = (synergyByCand.get(id) ?? []).map(x => ({
-          ...x,
-          winRate: x.games ? x.wins / x.games : 0,
-        }))
-        const positive = arr.filter(x => x.winRate > 0.5)
-        if (positive.length) {
-          const contribs = positive.map(x => clamp((x.winRate - 0.5) * 2, -1, 1) * logWeight(x.games))
-          synergyComp = contribs.reduce((a, b) => a + b, 0) / contribs.length
+      let synergyDetailsPos: any[] = []
+      let synergyDetailsNeg: any[] = []
 
-          synergyDetails = positive
-            .sort((a, b) => (b.winRate - a.winRate) || (b.games - a.games))
+      if (ally.length) {
+        const arr = (synergyByCand.get(id) ?? [])
+          .map(x => {
+            const wrRaw = x.games ? x.wins / x.games : 0
+            const wrSm = betaSmoothWinRate(x.wins, x.games, PRIOR_A, PRIOR_B)
+            const comp = signedComponentFromWR(wrSm, x.games)
+            return { ...x, winRate: wrRaw, winRateSmoothed: wrSm, component: comp }
+          })
+          .filter(x => x.games >= MIN_PAIR_GAMES)
+
+        if (arr.length) {
+          synergyComp = arr.reduce((s, x) => s + x.component, 0) / arr.length
+
+          synergyDetailsPos = arr
+            .filter(x => x.component > 0)
+            .sort((a, b) => (b.component - a.component) || (b.games - a.games))
             .slice(0, 2)
             .map(x => ({
               mateBrawlerId: x.mateId,
@@ -363,6 +418,22 @@ export class AppController {
               games: x.games,
               wins: x.wins,
               winRate: x.winRate,
+              winRateSmoothed: x.winRateSmoothed,
+              component: x.component,
+            }))
+
+          synergyDetailsNeg = arr
+            .filter(x => x.component < 0)
+            .sort((a, b) => (a.component - b.component) || (b.games - a.games))
+            .slice(0, 2)
+            .map(x => ({
+              mateBrawlerId: x.mateId,
+              mateBrawler: this.collector.brawlerName(x.mateId),
+              games: x.games,
+              wins: x.wins,
+              winRate: x.winRate,
+              winRateSmoothed: x.winRateSmoothed,
+              component: x.component,
             }))
         }
       }
@@ -373,9 +444,17 @@ export class AppController {
         brawlerId: id,
         brawler: this.collector.brawlerName(id),
         score,
-        base: { picks, wins, winRate: wr, component: baseComp },
-        counters: counterDetails,
-        synergies: synergyDetails,
+        base: { picks, wins, winRate: wrRaw, winRateSmoothed: wr, component: baseComp },
+        counters: {
+          positive: counterDetailsPos,
+          negative: counterDetailsNeg,
+          component: counterComp,
+        },
+        synergies: {
+          positive: synergyDetailsPos,
+          negative: synergyDetailsNeg,
+          component: synergyComp,
+        },
         lastSeen: r.lastSeen,
       })
     }
@@ -636,7 +715,7 @@ export class AppController {
           headers: { Authorization: `Bearer ${token}` },
         }),
       );
-      return res.data; // ✅ raw JSON from Supercell
+      return res.data; // raw JSON from Supercell
     } catch (e: any) {
       // forward useful error
       const status = e?.response?.status ?? 500;
