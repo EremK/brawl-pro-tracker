@@ -96,6 +96,25 @@ function compKeyFromTeam(team: any[]): { compKey: string; ids: number[] } | null
     return { compKey: ids.join('-'), ids };
 }
 
+function isShowdownMode(mode?: string | null) {
+    const m = (mode ?? '').trim().toLowerCase()
+    return m === 'soloshowdown' || m === 'duoshowdown' || m === 'trioshowdown'
+}
+
+function inferResultFromRaw(raw: any): string | null {
+    const mode = String(raw?.battle?.mode ?? '').trim()
+    if (!isShowdownMode(mode)) {
+        // for non-showdown you probably already use raw.battle.result
+        return (typeof raw?.battle?.result === 'string') ? raw.battle.result : null
+    }
+
+    const rank = Number(raw?.battle?.rank)
+    if (!Number.isFinite(rank)) return null
+
+    // simplest definition: only rank 1 is a win
+    return rank === 1 ? 'victory' : 'defeat'
+}
+
 @Injectable()
 export class CollectorService {
     private readonly log = new Logger(CollectorService.name);
@@ -275,7 +294,7 @@ export class CollectorService {
             if (!battleTime) continue; // skip if format unexpected
             const battleType = item?.battle?.type ?? 'unknown';
             const category = classifyCategory(battleType);
-            const result = item?.battle?.result ?? null;
+            const result = inferResultFromRaw(item)
             const duration = typeof item?.battle?.duration === 'number' ? item.battle.duration : null;
             
 

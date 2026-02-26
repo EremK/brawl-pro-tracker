@@ -131,3 +131,5 @@ docker-compose.override.yml
 *.sql
 *.dump
 *.bak
+
+bptssh.txt
