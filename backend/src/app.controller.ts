@@ -11,7 +11,7 @@ import { HttpService } from '@nestjs/axios';
 import { DisableTrackedDto } from './dto/disable-tracked.dto';
 import { CollectorService } from './collector/collector.service';
 import { BrawlerEntity } from './db/entities/brawler.entity';
-import { AdminKeyGuard } from './auth/admin-key.guard';
+import { AdminAccessGuard } from './auth/admin-access.guard';
 import axios from 'axios';
 
 function normTag(tag: string) {
@@ -88,7 +88,7 @@ export class AppController {
     private readonly collector: CollectorService,
   ) { }
 
-  @UseGuards(AdminKeyGuard)
+  @UseGuards(AdminAccessGuard)
   @Post('/tracked')
   async addTracked(@Body() body: AddTrackedDto) {
     const tag = normTag(body.tag);
@@ -99,12 +99,13 @@ export class AppController {
     return { ok: true, tag };
   }
 
+  @UseGuards(AdminAccessGuard)
   @Get('/tracked')
   async listTracked() {
     return this.trackedRepo.find();
   }
 
-  @UseGuards(AdminKeyGuard)
+  @UseGuards(AdminAccessGuard)
   @ApiTags('admin')
   @Post('/admin/collect-now')
   async collectNow() {
@@ -476,7 +477,7 @@ export class AppController {
   @ApiQuery({ name: 'map', required: true, example: 'Hideout' })
   @ApiQuery({ name: 'days', required: false, example: 7 })
   @ApiQuery({ name: 'category', required: false, enum: ['ranked', 'ladder', 'all'] })
-  @ApiQuery({ name: 'playerTag', required: false, example: '#92QGPQQJ' })
+  @ApiQuery({ name: 'playerTag', required: false, example: '#8J2LQ9RP' })
   @ApiQuery({ name: 'perspective', required: false, enum: ['pro', 'enemy', 'all'] })
   @ApiQuery({ name: 'mode', required: false, example: 'brawlBall' })
   @Get('/maps/top-comps')
@@ -555,7 +556,7 @@ export class AppController {
     };
   }
 
-  @UseGuards(AdminKeyGuard)
+  @UseGuards(AdminAccessGuard)
   @ApiTags('admin')
   @ApiQuery({ name: 'country', required: false, example: 'global' })
   @ApiQuery({ name: 'limit', required: false, example: 200 })
@@ -570,7 +571,7 @@ export class AppController {
     return this.collector.loadTopPlayers(country, Number(limit), rep);
   }
 
-  @UseGuards(AdminKeyGuard)
+  @UseGuards(AdminAccessGuard)
   @ApiTags('tracked')
   @ApiBody({ type: DisableTrackedDto })
   @Post('/tracked/disable')
@@ -580,6 +581,19 @@ export class AppController {
     await this.trackedRepo.update({ tag }, { active: false });
 
     // optional: tell if it existed
+    const row = await this.trackedRepo.findOne({ where: { tag } });
+    return { ok: true, tag, active: row?.active ?? null };
+  }
+
+  @UseGuards(AdminAccessGuard)
+  @ApiTags('tracked')
+  @ApiBody({ type: DisableTrackedDto })
+  @Post('/tracked/enable')
+  async enableTracked(@Body() body: DisableTrackedDto) {
+    const tag = normTag(body.tag);
+
+    await this.trackedRepo.update({ tag }, { active: true });
+
     const row = await this.trackedRepo.findOne({ where: { tag } });
     return { ok: true, tag, active: row?.active ?? null };
   }
@@ -632,7 +646,7 @@ export class AppController {
     };
   }
 
-  @UseGuards(AdminKeyGuard)
+  @UseGuards(AdminAccessGuard)
   @ApiTags('admin')
   @ApiQuery({ name: 'clubTag', required: true, example: '#2PPU0G8' })
   @ApiQuery({ name: 'replaceActive', required: false, example: false })
@@ -696,10 +710,10 @@ export class AppController {
   }
 
   @ApiTags('debug')
-  @ApiQuery({ name: 'tag', required: true, example: '92QGPQQJ' })
+  @ApiQuery({ name: 'tag', required: true, example: '8J2LQ9RP' })
   @Get('/battlelog')
   async battlelog(@Query('tag') tag: string) {
-    if (!tag) return { error: 'Provide ?tag=92QGPQQJ' };
+    if (!tag) return { error: 'Provide ?tag=8J2LQ9RP' };
 
     const clean = normTag(tag);
     const token = process.env.BRAWL_API_TOKEN;
@@ -977,7 +991,7 @@ export class AppController {
     return { map, since, category, mode: mode ?? null, items };
   }
 
-  @ApiQuery({ name: 'playerTag', required: false, example: '#92QGPQQJ' })
+  @ApiQuery({ name: 'playerTag', required: false, example: '#8J2LQ9RP' })
   @ApiQuery({ name: 'mode', required: false, example: 'brawlBall' })
   @Get('/maps/matchups')
   async matchups(

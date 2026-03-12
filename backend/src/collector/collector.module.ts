@@ -6,11 +6,14 @@ import { BattleEntity } from '../db/entities/battle.entity';
 import { BattleTeamPickEntity } from '../db/entities/battle-team-pick.entity';
 import { BrawlerEntity } from '../db/entities/brawler.entity';
 import { ConfigModule } from '@nestjs/config';
+import { UserProfileEntity } from '../db/entities/user-profile.entity';
+import { UserBattleEntity } from '../db/entities/user-battle.entity';
+import { UserBattlePickEntity } from '../db/entities/user-battle-pick.entity';
 
 @Module({
     imports: [
         ConfigModule,
-        TypeOrmModule.forFeature([TrackedPlayerEntity, BattleEntity, BattleTeamPickEntity, BrawlerEntity]),
+        TypeOrmModule.forFeature([TrackedPlayerEntity, BattleEntity, BattleTeamPickEntity, BrawlerEntity, UserProfileEntity, UserBattleEntity, UserBattlePickEntity]),
     ],
     providers: [CollectorService],
     exports: [CollectorService],

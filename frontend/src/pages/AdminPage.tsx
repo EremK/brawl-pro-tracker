@@ -1,8 +1,10 @@
 import { useState } from 'react'
 import { api } from '../shared/api'
+import { useAuth } from '../shared/auth'
 import s from './AdminPage.module.scss'
 
 export default function AdminPage() {
+    const { isAdmin, user } = useAuth()
     const [country, setCountry] = useState('global')
     const [limit, setLimit] = useState(200)
     const [replaceActive, setReplaceActive] = useState(false)
@@ -54,10 +56,21 @@ export default function AdminPage() {
         <div className="container">
             <div className="rowBetween">
                 <h2 className="pageTitle">Admin</h2>
-                <button className="btn btnPrimary" onClick={() => run(() => api.adminCollectNow())} disabled={loading}>
+                <button
+                    className="btn btnPrimary"
+                    onClick={() => run(() => api.adminCollectNow())}
+                    disabled={loading || !isAdmin}
+                >
                     Collect now
                 </button>
             </div>
+
+            {!isAdmin && (
+                <div className={s.notice}>
+                    Sign in with an admin account to use admin actions.
+                    {user ? ` Current account: ${user.email}` : ''}
+                </div>
+            )}
 
             <div className={s.grid} style={{ marginTop: 12 }}>
                 <div className={s.block}>
@@ -85,7 +98,11 @@ export default function AdminPage() {
                             <span>replaceActive</span>
                         </label>
 
-                        <button className="btn btnPrimary" onClick={() => run(() => api.adminLoadTop({ country, limit, replaceActive }))} disabled={loading}>
+                        <button
+                            className="btn btnPrimary"
+                            onClick={() => run(() => api.adminLoadTop({ country, limit, replaceActive }))}
+                            disabled={loading || !isAdmin}
+                        >
                             Load top
                         </button>
                     </div>
@@ -111,8 +128,8 @@ export default function AdminPage() {
                             <input className="uiInput" type="number" min={1} max={200} value={clubLimit} onChange={(e) => setClubLimit(Math.max(1, Math.min(200, Number(e.target.value) || 30)))} />
                         </div>
 
-                        <button className="btn btnPrimary" onClick={onImportClub} disabled={importLoading}>
-                            {importLoading ? 'Importing…' : 'Import'}
+                        <button className="btn btnPrimary" onClick={onImportClub} disabled={importLoading || !isAdmin}>
+                            {importLoading ? 'Importing...' : 'Import'}
                         </button>
                     </div>
 

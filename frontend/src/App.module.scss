@@ -10,8 +10,8 @@
 .headerInner {
     display: flex;
     justify-content: space-between;
-    align-items: baseline;
-    gap: 12px;
+    align-items: flex-start;
+    gap: 14px;
     flex-wrap: wrap;
     padding: 14px 0;
 }
@@ -54,8 +54,24 @@
     color: var(--muted2);
 }
 
+.rightSide {
+    display: flex;
+    align-items: flex-start;
+    justify-content: flex-end;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-left: auto;
+}
+
 .nav {
     display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.authBox {
+    display: flex;
+    align-items: flex-start;
     gap: 10px;
     flex-wrap: wrap;
 }
@@ -73,9 +89,36 @@
     transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
 }
 
+.navButton {
+    text-decoration: none;
+    height: 40px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 12px;
+    border-radius: 12px;
+    border: 1px solid var(--border2);
+    background: rgba(255, 255, 255, 0.03);
+    color: var(--text);
+    font: inherit;
+    cursor: pointer;
+    transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+
 .navLink:hover {
     transform: translateY(-1px);
     border-color: rgba(255, 255, 255, 0.22);
+}
+
+.navButton:hover {
+    transform: translateY(-1px);
+    border-color: rgba(255, 255, 255, 0.22);
+}
+
+.navButton:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
 }
 
 .active {

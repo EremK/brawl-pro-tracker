@@ -11,8 +11,25 @@ import { TrackedPlayerEntity } from '../db/entities/tracked-player.entity';
 import { BattleEntity } from '../db/entities/battle.entity';
 import { BattleTeamPickEntity } from '../db/entities/battle-team-pick.entity';
 import { BrawlerEntity } from '../db/entities/brawler.entity';
+import { UserProfileEntity } from '../db/entities/user-profile.entity';
+import { UserBattleEntity } from '../db/entities/user-battle.entity';
+import { UserBattlePickEntity } from '../db/entities/user-battle-pick.entity';
 
 type BattlelogResponse = { items: any[] };
+type PlayerProfileResponse = {
+    name?: string
+    icon?: { id?: number }
+    club?: { name?: string }
+    trophies?: number
+    powerPlayPoints?: number
+    power_play_points?: number
+    currentPowerPlayPoints?: number
+    highestPowerPlayPoints?: number
+    highest_power_play_points?: number
+    '3vs3Victories'?: number
+    teamVictories?: number
+    soloVictories?: number
+}
 
 function normTag(tag: string) {
     const t = (tag || '').trim().toUpperCase();
@@ -61,6 +78,26 @@ function extractBrawlersFromItem(item: any): Array<{ id: number; name: string }>
     push(item?.battle?.starPlayer?.brawler);
 
     return out;
+}
+
+function findPlayerBrawlerId(item: any, tag: string): number | null {
+    const teams = item?.battle?.teams
+    const norm = normTag(tag)
+
+    if (!Array.isArray(teams)) return null
+
+    for (const team of teams) {
+        if (!Array.isArray(team)) continue
+        for (const player of team) {
+            const playerTag = String(player?.tag ?? '').trim().toUpperCase()
+            if (playerTag !== norm) continue
+
+            const brawlerId = player?.brawler?.id
+            return typeof brawlerId === 'number' ? brawlerId : null
+        }
+    }
+
+    return null
 }
 
 function classifyCategory(battleType: string): 'ranked' | 'ladder' | 'special' | 'unknown' {
@@ -128,6 +165,9 @@ export class CollectorService {
         @InjectRepository(BattleEntity) private readonly battleRepo: Repository<BattleEntity>,
         @InjectRepository(BattleTeamPickEntity) private readonly picksRepo: Repository<BattleTeamPickEntity>,
         @InjectRepository(BrawlerEntity) private readonly brawlerRepo: Repository<BrawlerEntity>,
+        @InjectRepository(UserProfileEntity) private readonly userProfileRepo: Repository<UserProfileEntity>,
+        @InjectRepository(UserBattleEntity) private readonly userBattleRepo: Repository<UserBattleEntity>,
+        @InjectRepository(UserBattlePickEntity) private readonly userPickRepo: Repository<UserBattlePickEntity>,
     ) { }
 
     async onModuleInit() {
@@ -167,18 +207,43 @@ export class CollectorService {
         };
     }
 
-    // every 2 minutes (good for personal use)
+    // pro-data sync
     @Cron('*/15 * * * *')
     async tick() {
         if (process.env.COLLECTOR_ENABLED !== 'true') return;
         const tracked = await this.trackedRepo.find({ where: { active: true } });
-        if (!tracked.length) return;
 
         for (const p of tracked) {
             try {
                 await this.pullAndStore(p.tag);
             } catch (e: any) {
                 this.log.warn(`pull failed for ${p.tag}: ${e?.message ?? e}`);
+            }
+        }
+    }
+
+    // user-profile sync
+    @Cron('*/20 * * * *')
+    async syncProfilesTick() {
+        if (process.env.COLLECTOR_ENABLED !== 'true') return;
+
+        const profiles = await this.userProfileRepo
+            .createQueryBuilder('p')
+            .where('p.playerTag IS NOT NULL')
+            .getMany();
+
+        for (const profile of profiles) {
+            if (!profile.playerTag) continue;
+
+            try {
+                const result = await this.syncUserProfileBattles(profile.userId, profile.playerTag);
+                profile.lastSyncedAt = new Date();
+                if (result.playerName) {
+                    profile.playerName = result.playerName;
+                }
+                await this.userProfileRepo.save(profile);
+            } catch (e: any) {
+                this.log.warn(`profile sync failed for ${profile.userId}: ${e?.message ?? e}`);
             }
         }
     }
@@ -199,6 +264,24 @@ export class CollectorService {
         );
 
         const delBattles = await this.battleRepo.delete({ battleTime: LessThan(cutoff) });
+        await this.userPickRepo.query(
+            `DELETE FROM "user_battle_picks"
+     WHERE "battleId" IN (
+       SELECT "battleId" FROM "user_battles" WHERE "battleTime" < $1
+     )`,
+            [cutoff],
+        );
+        await this.userBattleRepo.delete({ battleTime: LessThan(cutoff) });
+        await this.userProfileRepo
+            .createQueryBuilder()
+            .update(UserProfileEntity)
+            .set({ lastSyncedAt: null })
+            .where(`NOT EXISTS (
+                SELECT 1
+                FROM "user_battles" ub
+                WHERE ub."userId" = "user_profiles"."userId"
+            )`)
+            .execute();
 
         this.log.log(
             `cleanup: retention=${safeDays}d cutoff=${cutoff.toISOString()} battlesDeleted=${delBattles.affected ?? 0}`,
@@ -215,6 +298,44 @@ export class CollectorService {
             }
         }
         return { processed: tracked.length };
+    }
+
+    async syncUserProfileBattles(userId: string, playerTag: string): Promise<{
+        processed: number
+        playerName: string | null
+        profileIconId: number | null
+        clubName: string | null
+        trophies: number | null
+        victories3v3: number | null
+    }> {
+        const token = this.cfg.get<string>('BRAWL_API_TOKEN');
+        const baseUrl = this.cfg.get<string>('BRAWL_API_BASE_URL') ?? 'https://api.brawlstars.com/v1';
+
+        const tag = normTag(playerTag);
+        const encodedTag = encodeTagForUrl(tag);
+
+        const [playerRes, battlelogRes] = await Promise.all([
+            axios.get<PlayerProfileResponse>(`${baseUrl}/players/${encodedTag}`, {
+                headers: { Authorization: `Bearer ${token}` },
+                timeout: 15_000,
+            }),
+            axios.get<BattlelogResponse>(`${baseUrl}/players/${encodedTag}/battlelog`, {
+                headers: { Authorization: `Bearer ${token}` },
+                timeout: 15_000,
+            }),
+        ]);
+
+        const processed = await this.ingestUserBattlelog(userId, tag, battlelogRes.data.items ?? []);
+        return {
+            processed,
+            playerName: typeof playerRes.data?.name === 'string' ? playerRes.data.name : null,
+            profileIconId: typeof playerRes.data?.icon?.id === 'number' ? playerRes.data.icon.id : null,
+            clubName: typeof playerRes.data?.club?.name === 'string' ? playerRes.data.club.name : null,
+            trophies: typeof playerRes.data?.trophies === 'number' ? playerRes.data.trophies : null,
+            victories3v3: typeof playerRes.data?.['3vs3Victories'] === 'number'
+                ? playerRes.data['3vs3Victories']
+                : (typeof playerRes.data?.teamVictories === 'number' ? playerRes.data.teamVictories : null),
+        };
     }
 
     async loadTopPlayers(countryCode: string = 'global', limit: number = 200, replaceActive: boolean = false) {
@@ -350,5 +471,91 @@ export class CollectorService {
         }
 
         this.log.log(`ingested for ${tag}`);
+    }
+
+    private async ingestUserBattlelog(userId: string, playerTag: string, items: any[]) {
+        let inserted = 0;
+
+        for (const item of items) {
+            const bt = item?.battleTime;
+            const mode = item?.event?.mode;
+            const map = item?.event?.map;
+            const teams = item?.battle?.teams;
+            const brawlers = extractBrawlersFromItem(item);
+
+            for (const b of brawlers) {
+                await this.brawlerRepo.upsert(b, ['id']);
+                this.brawlerNameById.set(b.id, b.name);
+            }
+
+            if (!bt || !mode || !map || !Array.isArray(teams)) continue;
+
+            const longKey = `${userId}|${bt}|${mode}|${map}|${JSON.stringify(teams)}`;
+            const battleId = createHash('sha256').update(longKey).digest('hex');
+
+            const battleTime = parseBrawlBattleTime(bt);
+            if (!battleTime) continue;
+
+            const battleType = item?.battle?.type ?? 'unknown';
+            const category = classifyCategory(battleType);
+            const result = inferResultFromRaw(item);
+            const duration = typeof item?.battle?.duration === 'number' ? item.battle.duration : null;
+            const userBrawlerId = findPlayerBrawlerId(item, playerTag);
+
+            const insertBattle = await this.userBattleRepo
+                .createQueryBuilder()
+                .insert()
+                .into(UserBattleEntity)
+                .values({
+                    battleId,
+                    userId,
+                    battleTime,
+                    mode,
+                    map,
+                    battleType,
+                    category,
+                    result,
+                    duration,
+                    userBrawlerId,
+                    observedFromTag: playerTag,
+                    raw: item,
+                })
+                .onConflict(
+                    '("battleId") DO UPDATE SET "userBrawlerId" = EXCLUDED."userBrawlerId", "raw" = EXCLUDED."raw"',
+                )
+                .execute();
+
+            if (insertBattle.identifiers.length) inserted++;
+
+            for (let side = 0; side < teams.length; side++) {
+                const team = teams[side];
+                const comp = compKeyFromTeam(team);
+                if (!comp) continue;
+
+                const ids = comp.ids;
+
+                await this.userPickRepo
+                    .createQueryBuilder()
+                    .insert()
+                    .into(UserBattlePickEntity)
+                    .values({
+                        battleId,
+                        userId,
+                        side,
+                        compKey: comp.compKey,
+                        teamSize: ids.length,
+                        b1: ids[0] ?? null,
+                        b2: ids[1] ?? null,
+                        b3: ids[2] ?? null,
+                        b4: ids[3] ?? null,
+                        b5: ids[4] ?? null,
+                        isUserSide: teamHasTag(team, playerTag),
+                    })
+                    .onConflict('("battleId", side) DO NOTHING')
+                    .execute();
+            }
+        }
+
+        return inserted;
     }
 }

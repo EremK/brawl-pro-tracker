@@ -1,7 +1,23 @@
-const API_BASE = import.meta.env.VITE_API_BASE ?? '/api';
+import { getStoredToken, type AuthSession, type AuthUser } from './session'
+
+const API_BASE =
+    import.meta.env.VITE_API_BASE_URL ??
+    import.meta.env.VITE_API_BASE ??
+    '/api'
+
+function buildHeaders(init?: RequestInit): HeadersInit {
+    const token = getStoredToken()
+    return {
+        'content-type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(init?.headers ?? {}),
+    }
+}
 
 async function apiGet<T>(path: string): Promise<T> {
-    const res = await fetch(`${API_BASE}${path}`);
+    const res = await fetch(`${API_BASE}${path}`, {
+        headers: buildHeaders(),
+    });
     if (!res.ok) {
         const text = await res.text().catch(() => '');
         throw new Error(`GET ${path} failed: ${res.status} ${text}`);
@@ -12,7 +28,7 @@ async function apiGet<T>(path: string): Promise<T> {
 async function apiPost<T>(path: string, body?: any): Promise<T> {
     const res = await fetch(`${API_BASE}${path}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: buildHeaders(),
         body: body ? JSON.stringify(body) : undefined,
     });
     if (!res.ok) {
@@ -25,10 +41,7 @@ async function apiPost<T>(path: string, body?: any): Promise<T> {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
     const res = await fetch(`${API_BASE}${path}`, {
         ...init,
-        headers: {
-            'content-type': 'application/json',
-            ...(init?.headers ?? {}),
-        },
+        headers: buildHeaders(init),
     })
 
     if (!res.ok) {
@@ -185,9 +198,183 @@ export type RankedHelperResponse = {
     items: RankedHelperItem[]
 }
 
+export type AuthResponse = {
+    token: string
+    user: AuthUser
+}
+
+export type AuthMeResponse = {
+    user: AuthUser
+}
+
+export type UserProfile = {
+    id: string
+    userId: string
+    playerTag: string | null
+    playerName: string | null
+    profileIconId: number | null
+    clubName: string | null
+    trophies: number | null
+    victories3v3: number | null
+    lastSyncedAt: string | null
+    createdAt: string
+    updatedAt: string
+}
+
+export type ProfileModeItem = {
+    category: 'ranked' | 'ladder'
+    mode: string
+    battles: number
+    wins: number
+    winRate: number
+    lastSeen: string
+}
+
+export type ProfileModesResponse = {
+    since: string
+    category: 'ranked' | 'ladder' | 'all'
+    items: ProfileModeItem[]
+}
+
+export type ProfileBrawlerItem = {
+    brawlerId: number
+    brawler: string
+    picks: number
+    wins: number
+    winRate: number
+    lastSeen: string
+}
+
+export type ProfileBrawlersResponse = {
+    since: string
+    category: 'ranked' | 'ladder' | 'all'
+    items: ProfileBrawlerItem[]
+}
+
+export type ProfileMatchItem = {
+    battleId: string
+    battleTime: string
+    category: 'ranked' | 'ladder' | 'special' | 'unknown'
+    mode: string
+    map: string
+    result: string | null
+    duration: number | null
+}
+
+export type ProfileMatchesResponse = {
+    since: string
+    category: 'ranked' | 'ladder' | 'all'
+    items: ProfileMatchItem[]
+}
+
+export type ProfileSyncResponse = {
+    ok: true
+    playerTag: string
+    playerName: string | null
+    profileIconId: number | null
+    clubName: string | null
+    trophies: number | null
+    victories3v3: number | null
+    processed: number
+    lastSyncedAt: string | null
+}
+
+export type ProfileMapItem = {
+    map: string
+    mode: string | null
+    battles: number
+    lastSeen: string
+}
+
+export type ProfileMapsResponse = {
+    since: string
+    category: 'ranked' | 'ladder' | 'all'
+    items: ProfileMapItem[]
+}
+
+export type ProfileBrawlersByMapResponse = {
+    map: string
+    since: string
+    category: 'ranked' | 'ladder' | 'all'
+    mode: string | null
+    items: ProfileBrawlerItem[]
+}
+
 /** ====== Endpoints ====== */
 
 export const api = {
+    authRegister: async (body: {
+        email: string
+        password: string
+        name?: string | null
+    }): Promise<AuthSession> => {
+        const res = await apiPost<AuthResponse>('/auth/register', body)
+        return { token: res.token, user: res.user }
+    },
+
+    authLogin: async (body: {
+        email: string
+        password: string
+    }): Promise<AuthSession> => {
+        const res = await apiPost<AuthResponse>('/auth/login', body)
+        return { token: res.token, user: res.user }
+    },
+
+    authMe: () => apiGet<AuthMeResponse>('/auth/me'),
+
+    profileMe: () => apiGet<UserProfile>('/profile'),
+
+    profileSetTag: (body: { tag: string }) =>
+        apiPost<UserProfile>('/profile/tag', body),
+
+    profileSync: () => apiPost<ProfileSyncResponse>('/profile/sync'),
+
+    profileModes: (params: { days?: number; category?: 'ranked' | 'ladder' | 'all' }) => {
+        const sp = new URLSearchParams()
+        if (params.days) sp.set('days', String(params.days))
+        if (params.category) sp.set('category', params.category)
+        return apiGet<ProfileModesResponse>(`/profile/modes?${sp.toString()}`)
+    },
+
+    profileBrawlers: (params: { days?: number; category?: 'ranked' | 'ladder' | 'all'; limit?: number }) => {
+        const sp = new URLSearchParams()
+        if (params.days) sp.set('days', String(params.days))
+        if (params.category) sp.set('category', params.category)
+        if (params.limit) sp.set('limit', String(params.limit))
+        return apiGet<ProfileBrawlersResponse>(`/profile/brawlers?${sp.toString()}`)
+    },
+
+    profileMatches: (params: { days?: number; category?: 'ranked' | 'ladder' | 'all'; limit?: number }) => {
+        const sp = new URLSearchParams()
+        if (params.days) sp.set('days', String(params.days))
+        if (params.category) sp.set('category', params.category)
+        if (params.limit) sp.set('limit', String(params.limit))
+        return apiGet<ProfileMatchesResponse>(`/profile/matches?${sp.toString()}`)
+    },
+
+    profileMaps: (params: { days?: number; category?: 'ranked' | 'ladder' | 'all' }) => {
+        const sp = new URLSearchParams()
+        if (params.days) sp.set('days', String(params.days))
+        if (params.category) sp.set('category', params.category)
+        return apiGet<ProfileMapsResponse>(`/profile/maps?${sp.toString()}`)
+    },
+
+    profileBrawlersByMap: (params: {
+        map: string
+        days?: number
+        category?: 'ranked' | 'ladder' | 'all'
+        mode?: string
+        limit?: number
+    }) => {
+        const sp = new URLSearchParams()
+        sp.set('map', params.map)
+        if (params.days) sp.set('days', String(params.days))
+        if (params.category) sp.set('category', params.category)
+        if (params.mode) sp.set('mode', params.mode)
+        if (params.limit) sp.set('limit', String(params.limit))
+        return apiGet<ProfileBrawlersByMapResponse>(`/profile/brawlers-by-map?${sp.toString()}`)
+    },
+
     // GET /maps
     maps: (params: { days?: number; category?: Category; mode?: string }) => {
         const days = params.days ?? 7;
@@ -258,6 +445,9 @@ export const api = {
     trackedDisable: (body: { tag: string }) =>
         apiPost<{ ok: true; tag: string; active: boolean | null }>(`/tracked/disable`, body),
 
+    trackedEnable: (body: { tag: string }) =>
+        apiPost<{ ok: true; tag: string; active: boolean | null }>(`/tracked/enable`, body),
+
     // admin
     adminCollectNow: () => apiPost<{ processed: number }>(`/admin/collect-now`),
 
@@ -274,7 +464,10 @@ export const api = {
         if (typeof params.replaceActive === 'boolean') usp.set('replaceActive', String(params.replaceActive))
         if (typeof params.limit === 'number') usp.set('limit', String(params.limit))
 
-        return fetch(`${API_BASE}/admin/import-club?${usp.toString()}`, { method: 'POST' })
+        return fetch(`${API_BASE}/admin/import-club?${usp.toString()}`, {
+            method: 'POST',
+            headers: buildHeaders(),
+        })
             .then(async (r) => {
                 const data = await r.json().catch(() => ({}))
                 if (!r.ok) throw new Error(data?.message ?? data?.error ?? 'Request failed')
