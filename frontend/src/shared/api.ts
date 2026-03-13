@@ -401,7 +401,7 @@ export const api = {
     },
 
     // GET /maps
-    maps: (params: { days?: number; category?: Category; mode?: string }) => {
+    maps: (params: { days?: number; category?: Category; mode?: string; activeWithinDays?: number }) => {
         const days = params.days ?? 7;
         const category = params.category ?? 'all';
 
@@ -409,6 +409,7 @@ export const api = {
         q.set('days', String(days));
         q.set('category', category);
         if (params.mode && params.mode.trim()) q.set('mode', params.mode.trim());
+        if (params.activeWithinDays != null) q.set('activeWithinDays', String(params.activeWithinDays));
 
         return apiGet<MapsResponse>(`/maps?${q.toString()}`);
     },

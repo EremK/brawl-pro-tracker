@@ -646,14 +646,20 @@ export class AppController {
   @ApiQuery({ name: 'mode', required: false, example: 'brawlBall' })
   @ApiQuery({ name: 'days', required: false, example: 7 })
   @ApiQuery({ name: 'category', required: false, enum: ['ranked', 'ladder', 'all'] })
+  @ApiQuery({ name: 'activeWithinDays', required: false, example: 3 })
   @Get('/maps')
   async listMaps(
     @Query('days') days = '7',
     @Query('category') category: 'ranked' | 'ladder' | 'special' | 'all',
     @Query('mode') mode?: string,
+    @Query('activeWithinDays') activeWithinDays?: string,
   ) {
     const daysN = Math.max(1, Math.min(30, Number(days) || 7));
     const since = new Date(Date.now() - daysN * 24 * 60 * 60 * 1000);
+    const activeDaysN = activeWithinDays ? Math.max(1, Math.min(14, Number(activeWithinDays) || 3)) : null;
+    const activeSince = activeDaysN
+      ? new Date(Date.now() - activeDaysN * 24 * 60 * 60 * 1000)
+      : null;
 
     const qb = this.battleRepo
       .createQueryBuilder('b')
@@ -671,6 +677,21 @@ export class AppController {
 
     if (mode && mode.trim()) {
       qb.andWhere('b.mode = :mode', { mode: mode.trim() }); // ✅ filter by mode
+    }
+
+    if (activeSince) {
+      qb.andWhere(
+        `EXISTS (
+          SELECT 1
+          FROM "battles" recent
+          WHERE recent."map" = b."map"
+            AND recent."mode" = b."mode"
+            AND recent."category" = 'ranked'
+            AND recent."battleType" = 'soloRanked'
+            AND recent."battleTime" >= :activeSince
+        )`,
+        { activeSince },
+      );
     }
 
     const rows = await qb

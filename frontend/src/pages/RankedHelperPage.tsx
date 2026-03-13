@@ -237,7 +237,7 @@ export default function RankedHelperPage() {
         let alive = true
         setErr(null)
 
-        api.maps({ days, category: 'ranked' })
+        api.maps({ days, category: 'ranked', activeWithinDays: 3 })
             .then((res) => {
                 if (!alive) return
                 setMaps(res.items ?? [])
