@@ -1573,8 +1573,8 @@ export const BRAWLER_CLASSIFICATIONS: BrawlerClassificationEntry[] = [
     "key": "mina",
     "officialClass": "controller",
     "roles": {
-      "primary": "mid",
-      "secondary": "lane"
+      "primary": "lane",
+      "secondary": "mid"
     },
     "traits": [
       "zone",

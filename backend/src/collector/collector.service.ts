@@ -14,6 +14,9 @@ import { BrawlerEntity } from '../db/entities/brawler.entity';
 import { UserProfileEntity } from '../db/entities/user-profile.entity';
 import { UserBattleEntity } from '../db/entities/user-battle.entity';
 import { UserBattlePickEntity } from '../db/entities/user-battle-pick.entity';
+import { RankedHelperBaseDailyEntity } from '../db/entities/ranked-helper-base-daily.entity';
+import { RankedHelperCounterDailyEntity } from '../db/entities/ranked-helper-counter-daily.entity';
+import { RankedHelperSynergyDailyEntity } from '../db/entities/ranked-helper-synergy-daily.entity';
 
 type BattlelogResponse = { items: any[] };
 type PlayerProfileResponse = {
@@ -168,10 +171,16 @@ export class CollectorService {
         @InjectRepository(UserProfileEntity) private readonly userProfileRepo: Repository<UserProfileEntity>,
         @InjectRepository(UserBattleEntity) private readonly userBattleRepo: Repository<UserBattleEntity>,
         @InjectRepository(UserBattlePickEntity) private readonly userPickRepo: Repository<UserBattlePickEntity>,
+        @InjectRepository(RankedHelperBaseDailyEntity) private readonly rankedHelperBaseDailyRepo: Repository<RankedHelperBaseDailyEntity>,
+        @InjectRepository(RankedHelperCounterDailyEntity) private readonly rankedHelperCounterDailyRepo: Repository<RankedHelperCounterDailyEntity>,
+        @InjectRepository(RankedHelperSynergyDailyEntity) private readonly rankedHelperSynergyDailyRepo: Repository<RankedHelperSynergyDailyEntity>,
     ) { }
 
     async onModuleInit() {
         await this.refreshBrawlerCache();
+        void this.refreshRankedHelperAggregates().catch((e: any) => {
+            this.log.warn(`initial ranked helper aggregate refresh failed: ${e?.message ?? e}`);
+        });
     }
 
     @Cron('*/15 * * * *')
@@ -248,6 +257,11 @@ export class CollectorService {
         }
     }
 
+    @Cron('7,37 * * * *')
+    async refreshRankedHelperAggregatesTick() {
+        await this.refreshRankedHelperAggregates();
+    }
+
     @Cron('10 3 * * *')
     async cleanupOldBattles() {
         const days = Number(this.cfg.get<string>('DATA_RETENTION_DAYS') ?? 60);
@@ -272,6 +286,21 @@ export class CollectorService {
             [cutoff],
         );
         await this.userBattleRepo.delete({ battleTime: LessThan(cutoff) });
+        await this.rankedHelperBaseDailyRepo
+            .createQueryBuilder()
+            .delete()
+            .where(`"bucketDate" < :cutoffDate`, { cutoffDate: cutoff.toISOString().slice(0, 10) })
+            .execute();
+        await this.rankedHelperCounterDailyRepo
+            .createQueryBuilder()
+            .delete()
+            .where(`"bucketDate" < :cutoffDate`, { cutoffDate: cutoff.toISOString().slice(0, 10) })
+            .execute();
+        await this.rankedHelperSynergyDailyRepo
+            .createQueryBuilder()
+            .delete()
+            .where(`"bucketDate" < :cutoffDate`, { cutoffDate: cutoff.toISOString().slice(0, 10) })
+            .execute();
         await this.userProfileRepo
             .createQueryBuilder()
             .update(UserProfileEntity)
@@ -557,5 +586,177 @@ export class CollectorService {
         }
 
         return inserted;
+    }
+
+    async refreshRankedHelperAggregates() {
+        const days = Number(this.cfg.get<string>('DATA_RETENTION_DAYS') ?? 60);
+        const safeDays = Number.isFinite(days) ? Math.max(7, Math.min(365, days)) : 60;
+        const since = new Date(Date.now() - safeDays * 24 * 60 * 60 * 1000);
+        const showdownModes = ['soloshowdown', 'duoshowdown', 'trioshowdown'];
+
+        await this.battleRepo.manager.transaction(async (manager) => {
+            await manager.query(`TRUNCATE TABLE "ranked_helper_base_daily_stats"`);
+            await manager.query(`TRUNCATE TABLE "ranked_helper_counter_daily_stats"`);
+            await manager.query(`TRUNCATE TABLE "ranked_helper_synergy_daily_stats"`);
+
+            await manager.query(
+                `
+                INSERT INTO "ranked_helper_base_daily_stats"
+                  ("bucketDate", "map", "mode", "brawlerId", "picks", "wins", "lastSeen")
+                WITH base AS (
+                  SELECT
+                    b."battleId",
+                    b."battleTime",
+                    b."result",
+                    b."map",
+                    b."mode",
+                    DATE(b."battleTime") AS "bucketDate"
+                  FROM "battles" b
+                  WHERE b."category" = 'ranked'
+                    AND b."battleTime" >= $1
+                    AND LOWER(b."mode") <> ALL($2)
+                ),
+                p_pro AS (
+                  SELECT
+                    p."battleId",
+                    unnest(array_remove(ARRAY[p."b1", p."b2", p."b3", p."b4", p."b5"], NULL)) AS id
+                  FROM "battle_team_picks" p
+                  INNER JOIN base b ON b."battleId" = p."battleId"
+                  WHERE p."isProSide" = true
+                    AND p."teamSize" IN (3, 5)
+                ),
+                p_en AS (
+                  SELECT
+                    p."battleId",
+                    unnest(array_remove(ARRAY[p."b1", p."b2", p."b3", p."b4", p."b5"], NULL)) AS id
+                  FROM "battle_team_picks" p
+                  INNER JOIN base b ON b."battleId" = p."battleId"
+                  WHERE p."isProSide" = false
+                    AND p."teamSize" IN (3, 5)
+                ),
+                uni AS (
+                  SELECT p."battleId", p.id, 'pro'::text AS side FROM p_pro p
+                  UNION ALL
+                  SELECT e."battleId", e.id, 'en'::text AS side FROM p_en e
+                )
+                SELECT
+                  b."bucketDate" AS "bucketDate",
+                  b."map" AS "map",
+                  b."mode" AS "mode",
+                  u.id AS "brawlerId",
+                  COUNT(*)::int AS "picks",
+                  SUM(
+                    CASE
+                      WHEN u.side = 'pro' AND b."result" = 'victory' THEN 1
+                      WHEN u.side = 'en' AND b."result" = 'defeat' THEN 1
+                      ELSE 0
+                    END
+                  )::int AS "wins",
+                  MAX(b."battleTime") AS "lastSeen"
+                FROM uni u
+                INNER JOIN base b ON b."battleId" = u."battleId"
+                GROUP BY b."bucketDate", b."map", b."mode", u.id
+                `,
+                [since, showdownModes],
+            );
+
+            await manager.query(
+                `
+                INSERT INTO "ranked_helper_counter_daily_stats"
+                  ("bucketDate", "map", "mode", "brawlerId", "enemyBrawlerId", "games", "wins", "lastSeen")
+                WITH base AS (
+                  SELECT
+                    b."battleId",
+                    b."battleTime",
+                    b."result",
+                    b."map",
+                    b."mode",
+                    DATE(b."battleTime") AS "bucketDate"
+                  FROM "battles" b
+                  WHERE b."category" = 'ranked'
+                    AND b."battleTime" >= $1
+                    AND LOWER(b."mode") <> ALL($2)
+                ),
+                pro_ids AS (
+                  SELECT
+                    p."battleId",
+                    unnest(array_remove(ARRAY[p."b1", p."b2", p."b3", p."b4", p."b5"], NULL)) AS "proId"
+                  FROM "battle_team_picks" p
+                  INNER JOIN base b ON b."battleId" = p."battleId"
+                  WHERE p."isProSide" = true
+                    AND p."teamSize" IN (3, 5)
+                ),
+                en_ids AS (
+                  SELECT
+                    p."battleId",
+                    unnest(array_remove(ARRAY[p."b1", p."b2", p."b3", p."b4", p."b5"], NULL)) AS "enemyId"
+                  FROM "battle_team_picks" p
+                  INNER JOIN base b ON b."battleId" = p."battleId"
+                  WHERE p."isProSide" = false
+                    AND p."teamSize" IN (3, 5)
+                )
+                SELECT
+                  b."bucketDate" AS "bucketDate",
+                  b."map" AS "map",
+                  b."mode" AS "mode",
+                  p."proId" AS "brawlerId",
+                  e."enemyId" AS "enemyBrawlerId",
+                  COUNT(*)::int AS "games",
+                  SUM(CASE WHEN b."result" = 'victory' THEN 1 ELSE 0 END)::int AS "wins",
+                  MAX(b."battleTime") AS "lastSeen"
+                FROM pro_ids p
+                INNER JOIN en_ids e ON e."battleId" = p."battleId"
+                INNER JOIN base b ON b."battleId" = p."battleId"
+                GROUP BY b."bucketDate", b."map", b."mode", p."proId", e."enemyId"
+                `,
+                [since, showdownModes],
+            );
+
+            await manager.query(
+                `
+                INSERT INTO "ranked_helper_synergy_daily_stats"
+                  ("bucketDate", "map", "mode", "brawlerId", "mateBrawlerId", "games", "wins", "lastSeen")
+                WITH base AS (
+                  SELECT
+                    b."battleId",
+                    b."battleTime",
+                    b."result",
+                    b."map",
+                    b."mode",
+                    DATE(b."battleTime") AS "bucketDate"
+                  FROM "battles" b
+                  WHERE b."category" = 'ranked'
+                    AND b."battleTime" >= $1
+                    AND LOWER(b."mode") <> ALL($2)
+                ),
+                pro_ids AS (
+                  SELECT
+                    p."battleId",
+                    unnest(array_remove(ARRAY[p."b1", p."b2", p."b3", p."b4", p."b5"], NULL)) AS "proId"
+                  FROM "battle_team_picks" p
+                  INNER JOIN base b ON b."battleId" = p."battleId"
+                  WHERE p."isProSide" = true
+                    AND p."teamSize" IN (3, 5)
+                )
+                SELECT
+                  b."bucketDate" AS "bucketDate",
+                  b."map" AS "map",
+                  b."mode" AS "mode",
+                  c."proId" AS "brawlerId",
+                  m."proId" AS "mateBrawlerId",
+                  COUNT(*)::int AS "games",
+                  SUM(CASE WHEN b."result" = 'victory' THEN 1 ELSE 0 END)::int AS "wins",
+                  MAX(b."battleTime") AS "lastSeen"
+                FROM pro_ids c
+                INNER JOIN pro_ids m
+                  ON m."battleId" = c."battleId" AND m."proId" <> c."proId"
+                INNER JOIN base b ON b."battleId" = c."battleId"
+                GROUP BY b."bucketDate", b."map", b."mode", c."proId", m."proId"
+                `,
+                [since, showdownModes],
+            );
+        });
+
+        this.log.log(`ranked helper aggregates refreshed for last ${safeDays}d`);
     }
 }

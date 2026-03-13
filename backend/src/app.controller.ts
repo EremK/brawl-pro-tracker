@@ -17,6 +17,9 @@ import { extractBearerToken } from './auth/token.helpers';
 import axios from 'axios';
 import { classificationForName, scoreDraftFit } from './ranked-helper/draft-scoring';
 import { UserProfileEntity } from './db/entities/user-profile.entity';
+import { RankedHelperBaseDailyEntity } from './db/entities/ranked-helper-base-daily.entity';
+import { RankedHelperCounterDailyEntity } from './db/entities/ranked-helper-counter-daily.entity';
+import { RankedHelperSynergyDailyEntity } from './db/entities/ranked-helper-synergy-daily.entity';
 
 function normTag(tag: string) {
   const t = (tag || '').trim().toUpperCase();
@@ -72,8 +75,31 @@ function signedComponentFromWR(wr: number, games: number) {
   return signed * logWeight(games)            // confidence scaling
 }
 
+type RankedHelperPairRow = {
+  otherId: number;
+  games: number;
+  wins: number;
+  lastSeen: any;
+};
+
+type RankedHelperBaseRow = {
+  brawlerId: number | string;
+  picks: number | string;
+  wins: number | string;
+  lastSeen: any;
+};
+
+type RankedHelperQueryBundle = {
+  baseRows: RankedHelperBaseRow[];
+  counterByCand: Map<number, RankedHelperPairRow[]>;
+  synergyByCand: Map<number, RankedHelperPairRow[]>;
+  cachedAt: number;
+};
+
 @Controller()
 export class AppController {
+  private readonly rankedHelperCache = new Map<string, RankedHelperQueryBundle>();
+
   constructor(
     @InjectRepository(TrackedPlayerEntity)
     private readonly trackedRepo: Repository<TrackedPlayerEntity>,
@@ -90,11 +116,135 @@ export class AppController {
     @InjectRepository(UserProfileEntity)
     private readonly userProfileRepo: Repository<UserProfileEntity>,
 
+    @InjectRepository(RankedHelperBaseDailyEntity)
+    private readonly rankedHelperBaseDailyRepo: Repository<RankedHelperBaseDailyEntity>,
+
+    @InjectRepository(RankedHelperCounterDailyEntity)
+    private readonly rankedHelperCounterDailyRepo: Repository<RankedHelperCounterDailyEntity>,
+
+    @InjectRepository(RankedHelperSynergyDailyEntity)
+    private readonly rankedHelperSynergyDailyRepo: Repository<RankedHelperSynergyDailyEntity>,
+
     private readonly http: HttpService,
 
     private readonly collector: CollectorService,
     private readonly authService: AuthService,
   ) { }
+
+  private rankedHelperCacheKey(map: string, days: number, mode?: string) {
+    return `${map.trim()}|${days}|${mode?.trim() || ''}`;
+  }
+
+  private trimRankedHelperCache(maxEntries = 16) {
+    if (this.rankedHelperCache.size <= maxEntries) return;
+    const items = Array.from(this.rankedHelperCache.entries())
+      .sort((a, b) => a[1].cachedAt - b[1].cachedAt);
+    while (items.length > maxEntries) {
+      const oldest = items.shift();
+      if (oldest) this.rankedHelperCache.delete(oldest[0]);
+    }
+  }
+
+  private async loadRankedHelperBundle(
+    map: string,
+    since: Date,
+    mode?: string,
+  ): Promise<RankedHelperQueryBundle> {
+    const sinceDate = since.toISOString().slice(0, 10);
+    const normalizedMap = map.trim();
+    const normalizedMode = mode?.trim();
+
+    const baseQb = this.rankedHelperBaseDailyRepo
+      .createQueryBuilder('s')
+      .select('s.brawlerId', 'brawlerId')
+      .addSelect('SUM(s.picks)::int', 'picks')
+      .addSelect('SUM(s.wins)::int', 'wins')
+      .addSelect('MAX(s.lastSeen)', 'lastSeen')
+      .where('s.map = :map', { map: normalizedMap })
+      .andWhere('s.bucketDate >= :sinceDate', { sinceDate });
+
+    const counterQb = this.rankedHelperCounterDailyRepo
+      .createQueryBuilder('s')
+      .select('s.brawlerId', 'brawlerId')
+      .addSelect('s.enemyBrawlerId', 'enemyId')
+      .addSelect('SUM(s.games)::int', 'games')
+      .addSelect('SUM(s.wins)::int', 'wins')
+      .addSelect('MAX(s.lastSeen)', 'lastSeen')
+      .where('s.map = :map', { map: normalizedMap })
+      .andWhere('s.bucketDate >= :sinceDate', { sinceDate });
+
+    const synergyQb = this.rankedHelperSynergyDailyRepo
+      .createQueryBuilder('s')
+      .select('s.brawlerId', 'brawlerId')
+      .addSelect('s.mateBrawlerId', 'mateId')
+      .addSelect('SUM(s.games)::int', 'games')
+      .addSelect('SUM(s.wins)::int', 'wins')
+      .addSelect('MAX(s.lastSeen)', 'lastSeen')
+      .where('s.map = :map', { map: normalizedMap })
+      .andWhere('s.bucketDate >= :sinceDate', { sinceDate });
+
+    if (normalizedMode) {
+      baseQb.andWhere('s.mode = :mode', { mode: normalizedMode });
+      counterQb.andWhere('s.mode = :mode', { mode: normalizedMode });
+      synergyQb.andWhere('s.mode = :mode', { mode: normalizedMode });
+    }
+
+    const [baseRows, counterRows, synergyRows] = await Promise.all([
+      baseQb.groupBy('s.brawlerId').getRawMany(),
+      counterQb.groupBy('s.brawlerId').addGroupBy('s.enemyBrawlerId').getRawMany(),
+      synergyQb.groupBy('s.brawlerId').addGroupBy('s.mateBrawlerId').getRawMany(),
+    ]);
+
+    const counterByCand = new Map<number, RankedHelperPairRow[]>();
+    for (const row of counterRows) {
+      const cand = Number(row.brawlerId);
+      if (!counterByCand.has(cand)) counterByCand.set(cand, []);
+      counterByCand.get(cand)!.push({
+        otherId: Number(row.enemyId),
+        games: Number(row.games) || 0,
+        wins: Number(row.wins) || 0,
+        lastSeen: row.lastSeen,
+      });
+    }
+
+    const synergyByCand = new Map<number, RankedHelperPairRow[]>();
+    for (const row of synergyRows) {
+      const cand = Number(row.brawlerId);
+      if (!synergyByCand.has(cand)) synergyByCand.set(cand, []);
+      synergyByCand.get(cand)!.push({
+        otherId: Number(row.mateId),
+        games: Number(row.games) || 0,
+        wins: Number(row.wins) || 0,
+        lastSeen: row.lastSeen,
+      });
+    }
+
+    return {
+      baseRows,
+      counterByCand,
+      synergyByCand,
+      cachedAt: Date.now(),
+    };
+  }
+
+  private async getRankedHelperBundle(
+    map: string,
+    daysN: number,
+    since: Date,
+    mode?: string,
+  ) {
+    const key = this.rankedHelperCacheKey(map, daysN, mode);
+    const cached = this.rankedHelperCache.get(key);
+    const ttlMs = 5 * 60 * 1000;
+    if (cached && Date.now() - cached.cachedAt < ttlMs) {
+      return cached;
+    }
+
+    const fresh = await this.loadRankedHelperBundle(map, since, mode);
+    this.rankedHelperCache.set(key, fresh);
+    this.trimRankedHelperCache();
+    return fresh;
+  }
 
   @UseGuards(AdminAccessGuard)
   @Post('/tracked')
@@ -185,167 +335,10 @@ export class AppController {
       preferredBrawlerIds = new Set<number>()
     }
 
-    // ---------- build WHERE + base params (ONLY what is needed) ----------
-    const whereParts: string[] = []
-    const baseParams: any[] = []
-
-    baseParams.push(map.trim())        // $1
-    baseParams.push(since)             // $2
-
-    whereParts.push(`b."map" = $1`)
-    whereParts.push(`b."battleTime" >= $2`)
-    whereParts.push(`b."category" = 'ranked'`)
-
-    if (mode && mode.trim()) {
-      baseParams.push(mode.trim()) // $3
-      whereParts.push(`b."mode" = $${baseParams.length}`)
-    }
-
-    const whereSql = `WHERE ${whereParts.join('\n  AND ')}`
-
-    // ---------- 1) base map strength (uses ONLY baseParams) ----------
-    const baseSql = `
-    WITH base AS (
-      SELECT b."battleId", b."battleTime", b."result"
-      FROM "battles" b
-      ${whereSql}
-    ),
-    pPro AS (
-      SELECT p."battleId",
-             unnest(array_remove(ARRAY[p."b1",p."b2",p."b3",p."b4",p."b5"], NULL)) AS id
-      FROM "battle_team_picks" p
-      INNER JOIN base b ON b."battleId" = p."battleId"
-      WHERE p."isProSide" = true
-        AND p."teamSize" IN (3,5)
-    ),
-    pEn AS (
-      SELECT p."battleId",
-             unnest(array_remove(ARRAY[p."b1",p."b2",p."b3",p."b4",p."b5"], NULL)) AS id
-      FROM "battle_team_picks" p
-      INNER JOIN base b ON b."battleId" = p."battleId"
-      WHERE p."isProSide" = false
-        AND p."teamSize" IN (3,5)
-    ),
-    uni AS (
-      SELECT p."battleId", p.id, 'pro'::text AS side FROM pPro p
-      UNION ALL
-      SELECT e."battleId", e.id, 'en'::text  AS side FROM pEn e
-    )
-    SELECT
-      u.id AS "brawlerId",
-      COUNT(*)::int AS "picks",
-      SUM(
-        CASE
-          WHEN u.side='pro' AND b."result"='victory' THEN 1
-          WHEN u.side='en'  AND b."result"='defeat'  THEN 1
-          ELSE 0
-        END
-      )::int AS "wins",
-      MAX(b."battleTime") AS "lastSeen"
-    FROM uni u
-    INNER JOIN base b ON b."battleId" = u."battleId"
-    GROUP BY u.id
-  `
-
-    const baseRows = await this.battleRepo.query(baseSql, baseParams)
-
-    // ---------- 2) counters vs enemy (ONLY if enemy provided) ----------
-    const counterByCand = new Map<number, Array<{ enemyId: number; games: number; wins: number; lastSeen: any }>>()
-
-    if (enemy.length) {
-      const counterParams = [...baseParams, enemy]
-      const enemyIdx = counterParams.length // last param index for $N
-
-      const counterSql = `
-      WITH base AS (
-        SELECT b."battleId", b."battleTime", b."result"
-        FROM "battles" b
-        ${whereSql}
-      ),
-      pro_ids AS (
-        SELECT p."battleId",
-               unnest(array_remove(ARRAY[p."b1",p."b2",p."b3",p."b4",p."b5"], NULL)) AS "proId"
-        FROM "battle_team_picks" p
-        INNER JOIN base b ON b."battleId" = p."battleId"
-        WHERE p."isProSide" = true AND p."teamSize" IN (3,5)
-      ),
-      en_ids AS (
-        SELECT p."battleId",
-               unnest(array_remove(ARRAY[p."b1",p."b2",p."b3",p."b4",p."b5"], NULL)) AS "enemyId"
-        FROM "battle_team_picks" p
-        INNER JOIN base b ON b."battleId" = p."battleId"
-        WHERE p."isProSide" = false AND p."teamSize" IN (3,5)
-      )
-      SELECT
-        p."proId" AS "brawlerId",
-        e."enemyId" AS "enemyId",
-        COUNT(*)::int AS "games",
-        SUM(CASE WHEN b."result"='victory' THEN 1 ELSE 0 END)::int AS "wins",
-        MAX(b."battleTime") AS "lastSeen"
-      FROM pro_ids p
-      INNER JOIN en_ids e ON e."battleId" = p."battleId"
-      INNER JOIN base b ON b."battleId" = p."battleId"
-      WHERE e."enemyId" = ANY($${enemyIdx}::int[])
-      GROUP BY p."proId", e."enemyId"
-    `
-
-      const counterRows = await this.battleRepo.query(counterSql, counterParams)
-
-      for (const r of counterRows) {
-        const cand = Number(r.brawlerId)
-        const enemyId = Number(r.enemyId)
-        const games = Number(r.games) || 0
-        const wins = Number(r.wins) || 0
-        if (!counterByCand.has(cand)) counterByCand.set(cand, [])
-        counterByCand.get(cand)!.push({ enemyId, games, wins, lastSeen: r.lastSeen })
-      }
-    }
-
-    // ---------- 3) synergy with allies (ONLY if ally provided) ----------
-    const synergyByCand = new Map<number, Array<{ mateId: number; games: number; wins: number; lastSeen: any }>>()
-
-    if (ally.length) {
-      const synergyParams = [...baseParams, ally]
-      const allyIdx = synergyParams.length
-
-      const synergySql = `
-      WITH base AS (
-        SELECT b."battleId", b."battleTime", b."result"
-        FROM "battles" b
-        ${whereSql}
-      ),
-      pro_ids AS (
-        SELECT p."battleId",
-               unnest(array_remove(ARRAY[p."b1",p."b2",p."b3",p."b4",p."b5"], NULL)) AS "proId"
-        FROM "battle_team_picks" p
-        INNER JOIN base b ON b."battleId" = p."battleId"
-        WHERE p."isProSide" = true AND p."teamSize" IN (3,5)
-      )
-      SELECT
-        c."proId" AS "brawlerId",
-        m."proId" AS "mateId",
-        COUNT(*)::int AS "games",
-        SUM(CASE WHEN b."result"='victory' THEN 1 ELSE 0 END)::int AS "wins",
-        MAX(b."battleTime") AS "lastSeen"
-      FROM pro_ids c
-      INNER JOIN pro_ids m
-        ON m."battleId" = c."battleId" AND m."proId" <> c."proId"
-      INNER JOIN base b ON b."battleId" = c."battleId"
-      WHERE m."proId" = ANY($${allyIdx}::int[])
-      GROUP BY c."proId", m."proId"
-    `
-
-      const synergyRows = await this.battleRepo.query(synergySql, synergyParams)
-
-      for (const r of synergyRows) {
-        const cand = Number(r.brawlerId)
-        const mateId = Number(r.mateId)
-        const games = Number(r.games) || 0
-        const wins = Number(r.wins) || 0
-        if (!synergyByCand.has(cand)) synergyByCand.set(cand, [])
-        synergyByCand.get(cand)!.push({ mateId, games, wins, lastSeen: r.lastSeen })
-      }
-    }
+    const bundle = await this.getRankedHelperBundle(map, daysN, since, mode)
+    const baseRows = bundle.baseRows
+    const counterByCand = bundle.counterByCand
+    const synergyByCand = bundle.synergyByCand
 
     // ---------- scoring ----------
     const items: any[] = []
@@ -369,6 +362,7 @@ export class AppController {
 
       if (enemy.length) {
         const arr = (counterByCand.get(id) ?? [])
+          .filter(x => enemy.includes(x.otherId))
           .map(x => {
             const wrRaw = x.games ? x.wins / x.games : 0
             const wrSm = betaSmoothWinRate(x.wins, x.games, PRIOR_A, PRIOR_B)
@@ -387,8 +381,8 @@ export class AppController {
             .sort((a, b) => (b.component - a.component) || (b.games - a.games))
             .slice(0, 3)
             .map(x => ({
-              enemyBrawlerId: x.enemyId,
-              enemyBrawler: this.collector.brawlerName(x.enemyId),
+              enemyBrawlerId: x.otherId,
+              enemyBrawler: this.collector.brawlerName(x.otherId),
               games: x.games,
               wins: x.wins,
               winRate: x.winRate,
@@ -402,8 +396,8 @@ export class AppController {
             .sort((a, b) => (a.component - b.component) || (b.games - a.games)) // most negative first
             .slice(0, 3)
             .map(x => ({
-              enemyBrawlerId: x.enemyId,
-              enemyBrawler: this.collector.brawlerName(x.enemyId),
+              enemyBrawlerId: x.otherId,
+              enemyBrawler: this.collector.brawlerName(x.otherId),
               games: x.games,
               wins: x.wins,
               winRate: x.winRate,
@@ -421,6 +415,7 @@ export class AppController {
 
       if (ally.length) {
         const arr = (synergyByCand.get(id) ?? [])
+          .filter(x => ally.includes(x.otherId))
           .map(x => {
             const wrRaw = x.games ? x.wins / x.games : 0
             const wrSm = betaSmoothWinRate(x.wins, x.games, PRIOR_A, PRIOR_B)
@@ -437,8 +432,8 @@ export class AppController {
             .sort((a, b) => (b.component - a.component) || (b.games - a.games))
             .slice(0, 2)
             .map(x => ({
-              mateBrawlerId: x.mateId,
-              mateBrawler: this.collector.brawlerName(x.mateId),
+              mateBrawlerId: x.otherId,
+              mateBrawler: this.collector.brawlerName(x.otherId),
               games: x.games,
               wins: x.wins,
               winRate: x.winRate,
@@ -451,8 +446,8 @@ export class AppController {
             .sort((a, b) => (a.component - b.component) || (b.games - a.games))
             .slice(0, 2)
             .map(x => ({
-              mateBrawlerId: x.mateId,
-              mateBrawler: this.collector.brawlerName(x.mateId),
+              mateBrawlerId: x.otherId,
+              mateBrawler: this.collector.brawlerName(x.otherId),
               games: x.games,
               wins: x.wins,
               winRate: x.winRate,

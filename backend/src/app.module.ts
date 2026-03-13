@@ -15,6 +15,9 @@ import { UserProfileEntity } from './db/entities/user-profile.entity';
 import { UserBattleEntity } from './db/entities/user-battle.entity';
 import { UserBattlePickEntity } from './db/entities/user-battle-pick.entity';
 import { ProfileModule } from './profile/profile.module';
+import { RankedHelperBaseDailyEntity } from './db/entities/ranked-helper-base-daily.entity';
+import { RankedHelperCounterDailyEntity } from './db/entities/ranked-helper-counter-daily.entity';
+import { RankedHelperSynergyDailyEntity } from './db/entities/ranked-helper-synergy-daily.entity';
 
 
 @Module({
@@ -34,13 +37,13 @@ import { ProfileModule } from './profile/profile.module';
         username: cfg.get('DB_USER'),
         password: cfg.get('DB_PASS'),
         database: cfg.get('DB_NAME'),
-        entities: [TrackedPlayerEntity, BattleEntity, BattleTeamPickEntity, BrawlerEntity, AuthUserEntity, UserProfileEntity, UserBattleEntity, UserBattlePickEntity],
+        entities: [TrackedPlayerEntity, BattleEntity, BattleTeamPickEntity, BrawlerEntity, AuthUserEntity, UserProfileEntity, UserBattleEntity, UserBattlePickEntity, RankedHelperBaseDailyEntity, RankedHelperCounterDailyEntity, RankedHelperSynergyDailyEntity],
         synchronize: true, // OK for personal project; later use migrations
         logging: false,
       }),
     }),
 
-    TypeOrmModule.forFeature([TrackedPlayerEntity, BattleEntity, BattleTeamPickEntity, BrawlerEntity, AuthUserEntity, UserProfileEntity, UserBattleEntity, UserBattlePickEntity]),
+    TypeOrmModule.forFeature([TrackedPlayerEntity, BattleEntity, BattleTeamPickEntity, BrawlerEntity, AuthUserEntity, UserProfileEntity, UserBattleEntity, UserBattlePickEntity, RankedHelperBaseDailyEntity, RankedHelperCounterDailyEntity, RankedHelperSynergyDailyEntity]),
     CollectorModule,
   ],
   controllers: [AppController],
