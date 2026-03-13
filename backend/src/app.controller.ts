@@ -13,6 +13,7 @@ import { CollectorService } from './collector/collector.service';
 import { BrawlerEntity } from './db/entities/brawler.entity';
 import { AdminAccessGuard } from './auth/admin-access.guard';
 import axios from 'axios';
+import { classificationForName, scoreDraftFit } from './ranked-helper/draft-scoring';
 
 function normTag(tag: string) {
   const t = (tag || '').trim().toUpperCase();
@@ -161,6 +162,8 @@ export class AppController {
     const ally = uniq3(parseIdsCsv(allyCsv))
     const enemy = uniq3(parseIdsCsv(enemyCsv))
     const pickedSet = new Set<number>([...ally, ...enemy])
+    const allyNames = ally.map((id) => this.collector.brawlerName(id))
+    const enemyNames = enemy.map((id) => this.collector.brawlerName(id))
 
     // ---------- build WHERE + base params (ONLY what is needed) ----------
     const whereParts: string[] = []
@@ -439,11 +442,23 @@ export class AppController {
         }
       }
 
-      const score = 0.45 * baseComp + 0.35 * counterComp + 0.20 * synergyComp
+      const candidateName = this.collector.brawlerName(id)
+      const draft = scoreDraftFit(classificationForName(candidateName), allyNames, enemyNames)
+      const draftComp =
+        draft.score.roleNeed +
+        draft.score.flexibility +
+        draft.score.traitMatchup +
+        draft.score.risk
+
+      const score =
+        0.34 * baseComp +
+        0.22 * counterComp +
+        0.14 * synergyComp +
+        0.30 * draftComp
 
       items.push({
         brawlerId: id,
-        brawler: this.collector.brawlerName(id),
+        brawler: candidateName,
         score,
         base: { picks, wins, winRate: wrRaw, winRateSmoothed: wr, component: baseComp },
         counters: {
@@ -455,6 +470,14 @@ export class AppController {
           positive: synergyDetailsPos,
           negative: synergyDetailsNeg,
           component: synergyComp,
+        },
+        draft: {
+          component: draftComp,
+          roleNeed: draft.score.roleNeed,
+          flexibility: draft.score.flexibility,
+          traitMatchup: draft.score.traitMatchup,
+          risk: draft.score.risk,
+          reasons: draft.reasons,
         },
         lastSeen: r.lastSeen,
       })
@@ -469,7 +492,7 @@ export class AppController {
       mode: mode?.trim() || null,
       ally,
       enemy,
-      weights: { base: 0.45, counters: 0.35, synergies: 0.20 },
+      weights: { base: 0.34, counters: 0.22, synergies: 0.14, draft: 0.30 },
       items: items.slice(0, lim),
     }
   }

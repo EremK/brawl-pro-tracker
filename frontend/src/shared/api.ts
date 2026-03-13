@@ -181,9 +181,25 @@ export type RankedHelperItem = {
     brawlerId: number
     brawler: string
     score: number
-    base: { picks: number; wins: number; winRate: number; component: number }
-    counters: Array<{ enemyBrawlerId: number; enemyBrawler: string; games: number; wins: number; winRate: number }>
-    synergies: Array<{ mateBrawlerId: number; mateBrawler: string; games: number; wins: number; winRate: number }>
+    base: { picks: number; wins: number; winRate: number; winRateSmoothed: number; component: number }
+    counters: {
+        positive: Array<{ enemyBrawlerId: number; enemyBrawler: string; games: number; wins: number; winRate: number; winRateSmoothed: number; component: number }>
+        negative: Array<{ enemyBrawlerId: number; enemyBrawler: string; games: number; wins: number; winRate: number; winRateSmoothed: number; component: number }>
+        component: number
+    }
+    synergies: {
+        positive: Array<{ mateBrawlerId: number; mateBrawler: string; games: number; wins: number; winRate: number; winRateSmoothed: number; component: number }>
+        negative: Array<{ mateBrawlerId: number; mateBrawler: string; games: number; wins: number; winRate: number; winRateSmoothed: number; component: number }>
+        component: number
+    }
+    draft: {
+        component: number
+        roleNeed: number
+        flexibility: number
+        traitMatchup: number
+        risk: number
+        reasons: Array<{ label: string; detail: string; impact: number }>
+    }
     lastSeen: string
 }
 
@@ -194,7 +210,7 @@ export type RankedHelperResponse = {
     mode: string | null
     ally: number[]
     enemy: number[]
-    weights: { base: number; counters: number; synergies: number }
+    weights: { base: number; counters: number; synergies: number; draft: number }
     items: RankedHelperItem[]
 }
 
