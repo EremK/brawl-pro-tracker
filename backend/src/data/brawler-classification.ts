@@ -948,8 +948,8 @@ export const BRAWLER_CLASSIFICATIONS: BrawlerClassificationEntry[] = [
     ]
   },
   {
-    "name": "Glowy",
-    "key": "glowy",
+    "name": "Glowbert",
+    "key": "glowbert",
     "officialClass": "mythic_support_controller",
     "roles": {
       "primary": "support",
@@ -1580,7 +1580,8 @@ export const BRAWLER_CLASSIFICATIONS: BrawlerClassificationEntry[] = [
       "zone",
       "utility",
       "control",
-      "poke"
+      "poke",
+      "anti_aim_reliant"
     ],
     "draftProfile": [
       "blind",

@@ -197,6 +197,7 @@ export type RankedHelperItem = {
         roleNeed: number
         flexibility: number
         traitMatchup: number
+        mapFit: number
         risk: number
         reasons: Array<{ label: string; detail: string; impact: number }>
     }

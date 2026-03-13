@@ -60,6 +60,11 @@ function logWeight(n: number) {
   return Math.log10(n + 1) / 3 // 0..1-ish for 1..1000
 }
 
+function draftEvidenceWeight(n: number) {
+  // Positive draft-profile bonuses should not dominate on tiny map samples.
+  return clamp(Math.log10(n + 1) / 1.7, 0.08, 1)
+}
+
 function betaSmoothWinRate(wins: number, games: number, a = 5, b = 5) {
   // Posterior mean of Beta(a,b) prior with wins/losses evidence
   // games=0 => a/(a+b) = 0.5 when a=b
@@ -311,8 +316,10 @@ export class AppController {
     const lim = Math.max(6, Math.min(30, Number(limit) || 12))
 
     // tuning
-    const PRIOR_A = 5
-    const PRIOR_B = 5
+    const BASE_PRIOR_A = 20
+    const BASE_PRIOR_B = 20
+    const PAIR_PRIOR_A = 5
+    const PAIR_PRIOR_B = 5
 
     // don’t punish/reward tiny samples for counters/synergy
     const MIN_PAIR_GAMES = 2
@@ -351,7 +358,7 @@ export class AppController {
       const picks = Number(r.picks) || 0
       const wins = Number(r.wins) || 0
       const wrRaw = picks ? wins / picks : 0
-      const wr = betaSmoothWinRate(wins, picks, PRIOR_A, PRIOR_B)
+      const wr = betaSmoothWinRate(wins, picks, BASE_PRIOR_A, BASE_PRIOR_B)
       const baseComp = signedComponentFromWR(wr, picks)
 
       // counters (positive only)
@@ -365,7 +372,7 @@ export class AppController {
           .filter(x => enemy.includes(x.otherId))
           .map(x => {
             const wrRaw = x.games ? x.wins / x.games : 0
-            const wrSm = betaSmoothWinRate(x.wins, x.games, PRIOR_A, PRIOR_B)
+            const wrSm = betaSmoothWinRate(x.wins, x.games, PAIR_PRIOR_A, PAIR_PRIOR_B)
             const comp = signedComponentFromWR(wrSm, x.games)
             return { ...x, winRate: wrRaw, winRateSmoothed: wrSm, component: comp }
           })
@@ -418,7 +425,7 @@ export class AppController {
           .filter(x => ally.includes(x.otherId))
           .map(x => {
             const wrRaw = x.games ? x.wins / x.games : 0
-            const wrSm = betaSmoothWinRate(x.wins, x.games, PRIOR_A, PRIOR_B)
+            const wrSm = betaSmoothWinRate(x.wins, x.games, PAIR_PRIOR_A, PAIR_PRIOR_B)
             const comp = signedComponentFromWR(wrSm, x.games)
             return { ...x, winRate: wrRaw, winRateSmoothed: wrSm, component: comp }
           })
@@ -458,12 +465,20 @@ export class AppController {
       }
 
       const candidateName = this.collector.brawlerName(id)
-      const draft = scoreDraftFit(classificationForName(candidateName), allyNames, enemyNames)
-      const draftComp =
-        draft.score.roleNeed +
-        draft.score.flexibility +
-        draft.score.traitMatchup +
+      const draft = scoreDraftFit(classificationForName(candidateName), allyNames, enemyNames, map, mode?.trim() || undefined)
+      const draftPositive =
+        Math.max(0, draft.score.roleNeed) +
+        Math.max(0, draft.score.flexibility) +
+        Math.max(0, draft.score.traitMatchup) +
+        Math.max(0, draft.score.mapFit)
+      const draftNegative = Math.min(0, draft.score.roleNeed) +
+        Math.min(0, draft.score.flexibility) +
+        Math.min(0, draft.score.traitMatchup) +
+        Math.min(0, draft.score.mapFit) +
         draft.score.risk
+      const draftComp =
+        draftPositive * draftEvidenceWeight(picks) +
+        draftNegative
       const preferredBoost = preferredBrawlerIds.has(id) ? 0.08 : 0
 
       const score =
@@ -493,6 +508,7 @@ export class AppController {
           roleNeed: draft.score.roleNeed,
           flexibility: draft.score.flexibility,
           traitMatchup: draft.score.traitMatchup,
+          mapFit: draft.score.mapFit,
           risk: draft.score.risk,
           reasons: draft.reasons,
         },

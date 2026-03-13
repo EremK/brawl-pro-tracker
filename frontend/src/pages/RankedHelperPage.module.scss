@@ -372,7 +372,7 @@
 
     /* ✅ "max 2 rows visible" — pick a reasonable card height budget */
     /* tweak 220px if your cards are smaller/bigger */
-    max-height: 350px;
+    max-height: 380px;
     min-height: 350px;
 }
 
@@ -444,11 +444,14 @@
 .lines {
     display: grid;
     gap: 8px;
+    align-content: start;
 }
 
 .block {
     display: grid;
     gap: 6px;
+    align-content: start;
+    align-self: start;
 }
 
 .reasonTags {
