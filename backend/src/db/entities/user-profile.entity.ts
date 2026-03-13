@@ -35,6 +35,12 @@ export class UserProfileEntity {
   @Column({ type: 'int', nullable: true })
   victories3v3!: number | null;
 
+  @Column({ type: 'int', nullable: true })
+  preferredDays!: number | null;
+
+  @Column('int', { array: true, default: () => "'{}'" })
+  preferredBrawlerIds!: number[];
+
   @Column({ type: 'timestamptz', nullable: true })
   lastSyncedAt!: Date | null;
 

@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { api } from '../shared/api'
+import { useAuth } from '../shared/auth'
 import type { BrawlerLite, MapItem, RankedHelperItem, RankedHelperResponse } from '../shared/api'
 import s from './RankedHelperPage.module.scss'
 
@@ -19,6 +20,11 @@ const DRAFT_REASON_LEGEND: Record<string, string> = {
     'Counter window': 'There is enough enemy info for this pick to gain counter value.',
     'Strong punish pick': 'This profile is strongest when the draft is almost complete.',
     'Counter-finisher': 'Late draft state gives this brawler more direct punish value.',
+}
+
+const STAR_LEGEND = {
+    label: '★',
+    detail: 'The star marks a brawler you saved in Profile settings as one of your most skilled picks. Ranked Helper gives it a moderate personal preference boost.',
 }
 
 function slugifyBrawler(name: string) {
@@ -189,7 +195,8 @@ function SynergyBlock({ item }: { item: RankedHelperItem }) {
 }
 
 export default function RankedHelperPage() {
-    const [days, setDays] = useState(7)
+    const { user } = useAuth()
+    const [days, setDays] = useState(30)
     const [mode, setMode] = useState<string>('')
     const [map, setMap] = useState<string>('')
     const [showLegend, setShowLegend] = useState(false)
@@ -203,6 +210,28 @@ export default function RankedHelperPage() {
     const [loading, setLoading] = useState(false)
     const [err, setErr] = useState<string | null>(null)
     const [result, setResult] = useState<RankedHelperResponse | null>(null)
+
+    useEffect(() => {
+        if (!user) {
+            setDays(30)
+            return
+        }
+
+        let alive = true
+        api.profileMe()
+            .then((profile) => {
+                if (!alive) return
+                setDays(profile.preferredDays ?? 30)
+            })
+            .catch(() => {
+                if (!alive) return
+                setDays(30)
+            })
+
+        return () => {
+            alive = false
+        }
+    }, [user])
 
     useEffect(() => {
         let alive = true
@@ -294,11 +323,10 @@ export default function RankedHelperPage() {
     }, [maps])
 
     const legendItems = useMemo(() => {
-        return Object.keys(DRAFT_REASON_LEGEND)
-            .sort((a, b) => a.localeCompare(b))
+        return [...Object.keys(DRAFT_REASON_LEGEND).sort((a, b) => a.localeCompare(b)), STAR_LEGEND.label]
             .map((label) => ({
                 label,
-                detail: DRAFT_REASON_LEGEND[label] ?? '',
+                detail: label === STAR_LEGEND.label ? STAR_LEGEND.detail : (DRAFT_REASON_LEGEND[label] ?? ''),
             }))
     }, [])
 
@@ -358,10 +386,10 @@ export default function RankedHelperPage() {
                             <input
                                 className={s.input}
                                 type="number"
-                                min={1}
-                                max={30}
+                                min={7}
+                                max={60}
                                 value={days}
-                                onChange={(e) => setDays(Math.max(1, Math.min(30, Number(e.target.value) || 7)))}
+                                onChange={(e) => setDays(Math.max(7, Math.min(60, Number(e.target.value) || 30)))}
                             />
                         </label>
                         <button className={s.btn} type="button" onClick={fetchSuggest} disabled={loading || !map}>
@@ -401,7 +429,9 @@ export default function RankedHelperPage() {
                             <div className={s.legend}>
                                 {legendItems.map((item) => (
                                     <div key={item.label} className={s.legendItem}>
-                                        <span className={s.legendTag}>{item.label}</span>
+                                        <span className={item.label === STAR_LEGEND.label ? s.legendStar : s.legendTag}>
+                                            {item.label}
+                                        </span>
                                         <span className={s.legendText}>{item.detail}</span>
                                     </div>
                                 ))}
@@ -417,6 +447,7 @@ export default function RankedHelperPage() {
                                 const img = `/brawlers/${slugifyBrawler(item.brawler)}.webp`
                                 return (
                                     <div key={item.brawlerId} className={s.card}>
+                                        {item.userPreference?.preferred && <div className={s.preferenceStar}>★</div>}
                                         <div className={s.cardTop}>
                                             <img
                                                 className={s.cardImg}

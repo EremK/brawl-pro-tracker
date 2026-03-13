@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../shared/api'
+import { useAuth } from '../shared/auth'
 import type { Category, MapItem } from '../shared/api'
 import s from './MapsPage.module.scss'
 
 type ModeFilter = 'all' | string
 
 export default function MapsPage() {
-    const [days, setDays] = useState(7)
+    const { user } = useAuth()
+    const [days, setDays] = useState(30)
     const [category, setCategory] = useState<Category>('ranked')
     const [mode, setMode] = useState<ModeFilter>('all')
     const [q, setQ] = useState('')
@@ -15,6 +17,28 @@ export default function MapsPage() {
     const [items, setItems] = useState<MapItem[]>([])
     const [loading, setLoading] = useState(false)
     const [err, setErr] = useState<string | null>(null)
+
+    useEffect(() => {
+        if (!user) {
+            setDays(30)
+            return
+        }
+
+        let alive = true
+        api.profileMe()
+            .then((profile) => {
+                if (!alive) return
+                setDays(profile.preferredDays ?? 30)
+            })
+            .catch(() => {
+                if (!alive) return
+                setDays(30)
+            })
+
+        return () => {
+            alive = false
+        }
+    }, [user])
 
     useEffect(() => {
         let alive = true
@@ -71,10 +95,10 @@ export default function MapsPage() {
                     <input
                         className="uiInput"
                         type="number"
-                        min={1}
-                        max={30}
+                        min={7}
+                        max={60}
                         value={days}
-                        onChange={(e) => setDays(Math.max(1, Math.min(30, Number(e.target.value) || 7)))}
+                        onChange={(e) => setDays(Math.max(7, Math.min(60, Number(e.target.value) || 30)))}
                     />
                 </div>
 

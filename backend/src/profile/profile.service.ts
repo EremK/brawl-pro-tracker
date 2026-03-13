@@ -66,6 +66,8 @@ export class ProfileService {
           clubName: null,
           trophies: null,
           victories3v3: null,
+          preferredDays: null,
+          preferredBrawlerIds: [],
           lastSyncedAt: null,
         }),
       );
@@ -76,6 +78,36 @@ export class ProfileService {
 
   async getProfile(user: AppUser) {
     return this.getOrCreateProfile(user);
+  }
+
+  async saveSettings(
+    user: AppUser,
+    preferredDays: number | null | undefined,
+    preferredBrawlerIds: number[] | null | undefined,
+  ) {
+    const profile = await this.getOrCreateProfile(user);
+
+    if (preferredDays === null) {
+      profile.preferredDays = null;
+    } else if (preferredDays !== undefined) {
+      const safe = Math.max(7, Math.min(60, Number(preferredDays) || 30));
+      profile.preferredDays = safe;
+    }
+
+    if (preferredBrawlerIds === null) {
+      profile.preferredBrawlerIds = [];
+    } else if (preferredBrawlerIds !== undefined) {
+      const safeIds = Array.from(
+        new Set(
+          (Array.isArray(preferredBrawlerIds) ? preferredBrawlerIds : [])
+            .map((value) => Number(value))
+            .filter((value) => Number.isFinite(value) && value > 0),
+        ),
+      ).slice(0, 10);
+      profile.preferredBrawlerIds = safeIds;
+    }
+
+    return this.profiles.save(profile);
   }
 
   async setPlayerTag(user: AppUser, tag: string) {

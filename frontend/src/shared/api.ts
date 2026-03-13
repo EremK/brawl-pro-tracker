@@ -200,6 +200,10 @@ export type RankedHelperItem = {
         risk: number
         reasons: Array<{ label: string; detail: string; impact: number }>
     }
+    userPreference: {
+        preferred: boolean
+        boost: number
+    }
     lastSeen: string
 }
 
@@ -232,6 +236,8 @@ export type UserProfile = {
     clubName: string | null
     trophies: number | null
     victories3v3: number | null
+    preferredDays: number | null
+    preferredBrawlerIds: number[]
     lastSyncedAt: string | null
     createdAt: string
     updatedAt: string
@@ -344,6 +350,9 @@ export const api = {
         apiPost<UserProfile>('/profile/tag', body),
 
     profileSync: () => apiPost<ProfileSyncResponse>('/profile/sync'),
+
+    profileSaveSettings: (body: { preferredDays?: number | null; preferredBrawlerIds?: number[] | null }) =>
+        apiPost<UserProfile>('/profile/settings', body),
 
     profileModes: (params: { days?: number; category?: 'ranked' | 'ladder' | 'all' }) => {
         const sp = new URLSearchParams()

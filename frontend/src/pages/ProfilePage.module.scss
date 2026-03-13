@@ -84,6 +84,69 @@
     min-width: 260px;
 }
 
+.settingsRow {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    align-items: end;
+}
+
+.selectedBrawlers {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.selectedBrawler {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    border: 1px solid rgba(60, 199, 122, 0.28);
+    background: rgba(60, 199, 122, 0.10);
+    color: var(--text);
+    border-radius: 999px;
+    padding: 6px 10px;
+    cursor: pointer;
+}
+
+.selectedBrawlerImg {
+    width: 24px;
+    height: 24px;
+    border-radius: 8px;
+    object-fit: cover;
+}
+
+.brawlerPickerGrid {
+    margin-top: 10px;
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.brawlerPick {
+    border: 1px solid var(--border);
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 14px;
+    padding: 10px 8px;
+    display: grid;
+    gap: 6px;
+    place-items: center;
+    color: var(--text);
+    cursor: pointer;
+}
+
+.brawlerPick:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.brawlerPickImg {
+    width: 40px;
+    height: 40px;
+    border-radius: 12px;
+    object-fit: cover;
+}
+
 .row {
     display: flex;
     justify-content: space-between;
@@ -99,5 +162,9 @@
 
     .statCards {
         grid-template-columns: 1fr;
+    }
+
+    .brawlerPickerGrid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
     }
 }

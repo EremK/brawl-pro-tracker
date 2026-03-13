@@ -22,6 +22,19 @@ export class ProfileController {
     return this.profileService.syncProfile(req.user);
   }
 
+  @Post('/settings')
+  saveSettings(
+    @Req() req: any,
+    @Body('preferredDays') preferredDays?: number | null,
+    @Body('preferredBrawlerIds') preferredBrawlerIds?: number[] | null,
+  ) {
+    return this.profileService.saveSettings(
+      req.user,
+      preferredDays,
+      preferredBrawlerIds,
+    );
+  }
+
   @Get('/modes')
   bestModes(
     @Req() req: any,

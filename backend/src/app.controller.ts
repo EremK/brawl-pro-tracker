@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ApiQuery, ApiTags, ApiBody } from '@nestjs/swagger';
@@ -12,8 +12,11 @@ import { DisableTrackedDto } from './dto/disable-tracked.dto';
 import { CollectorService } from './collector/collector.service';
 import { BrawlerEntity } from './db/entities/brawler.entity';
 import { AdminAccessGuard } from './auth/admin-access.guard';
+import { AuthService } from './auth/auth.service';
+import { extractBearerToken } from './auth/token.helpers';
 import axios from 'axios';
 import { classificationForName, scoreDraftFit } from './ranked-helper/draft-scoring';
+import { UserProfileEntity } from './db/entities/user-profile.entity';
 
 function normTag(tag: string) {
   const t = (tag || '').trim().toUpperCase();
@@ -84,9 +87,13 @@ export class AppController {
     @InjectRepository(BrawlerEntity)
     private readonly brawlerRepo: Repository<BrawlerEntity>,
 
+    @InjectRepository(UserProfileEntity)
+    private readonly userProfileRepo: Repository<UserProfileEntity>,
+
     private readonly http: HttpService,
 
     private readonly collector: CollectorService,
+    private readonly authService: AuthService,
   ) { }
 
   @UseGuards(AdminAccessGuard)
@@ -136,6 +143,7 @@ export class AppController {
   @ApiQuery({ name: 'limit', required: false, example: 12 })
   @Get('/maps/ranked-helper')
   async rankedHelper(
+    @Req() req: any,
     @Query('map') map: string,
     @Query('days') days = '7',
     @Query('mode') mode?: string,
@@ -164,6 +172,18 @@ export class AppController {
     const pickedSet = new Set<number>([...ally, ...enemy])
     const allyNames = ally.map((id) => this.collector.brawlerName(id))
     const enemyNames = enemy.map((id) => this.collector.brawlerName(id))
+    let preferredBrawlerIds = new Set<number>()
+
+    try {
+      const token = extractBearerToken(req?.headers?.authorization)
+      if (token) {
+        const sessionUser = await this.authService.verifyAppToken(token)
+        const profile = await this.userProfileRepo.findOne({ where: { userId: sessionUser.sub } })
+        preferredBrawlerIds = new Set(profile?.preferredBrawlerIds ?? [])
+      }
+    } catch {
+      preferredBrawlerIds = new Set<number>()
+    }
 
     // ---------- build WHERE + base params (ONLY what is needed) ----------
     const whereParts: string[] = []
@@ -449,12 +469,14 @@ export class AppController {
         draft.score.flexibility +
         draft.score.traitMatchup +
         draft.score.risk
+      const preferredBoost = preferredBrawlerIds.has(id) ? 0.08 : 0
 
       const score =
         0.34 * baseComp +
         0.22 * counterComp +
         0.14 * synergyComp +
-        0.30 * draftComp
+        0.30 * draftComp +
+        preferredBoost
 
       items.push({
         brawlerId: id,
@@ -478,6 +500,10 @@ export class AppController {
           traitMatchup: draft.score.traitMatchup,
           risk: draft.score.risk,
           reasons: draft.reasons,
+        },
+        userPreference: {
+          preferred: preferredBoost > 0,
+          boost: preferredBoost,
         },
         lastSeen: r.lastSeen,
       })

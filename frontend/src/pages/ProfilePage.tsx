@@ -19,13 +19,28 @@ function formatDate(value: string | null | undefined) {
     return value
 }
 
+function slugifyBrawler(name: string) {
+    return name
+        .trim()
+        .toLowerCase()
+        .replace(/['"]/g, '')
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '')
+}
+
 export default function ProfilePage() {
     const { user } = useAuth()
     const [tag, setTag] = useState('')
+    const [preferredDays, setPreferredDays] = useState(30)
+    const [preferredBrawlerIds, setPreferredBrawlerIds] = useState<number[]>([])
+    const [brawlerSearch, setBrawlerSearch] = useState('')
     const [loading, setLoading] = useState(false)
     const [syncing, setSyncing] = useState(false)
+    const [savingSettings, setSavingSettings] = useState(false)
     const [err, setErr] = useState<string | null>(null)
     const [profile, setProfile] = useState<Awaited<ReturnType<typeof api.profileMe>> | null>(null)
+    const [allBrawlers, setAllBrawlers] = useState<Array<{ id: number; name: string }>>([])
     const [modes, setModes] = useState<Record<Category, any[]>>({ ranked: [], ladder: [] })
     const [brawlers, setBrawlers] = useState<Record<Category, any[]>>({ ranked: [], ladder: [] })
     const [matches, setMatches] = useState<Record<Category, any[]>>({ ranked: [], ladder: [] })
@@ -42,6 +57,8 @@ export default function ProfilePage() {
             const profileRes = await api.profileMe()
             setProfile(profileRes)
             setTag(profileRes.playerTag ?? '')
+            setPreferredDays(profileRes.preferredDays ?? 30)
+            setPreferredBrawlerIds(profileRes.preferredBrawlerIds ?? [])
 
             if (!profileRes.playerTag) {
                 setModes({ ranked: [], ladder: [] })
@@ -96,6 +113,23 @@ export default function ProfilePage() {
     }, [])
 
     useEffect(() => {
+        let alive = true
+        api.brawlers()
+            .then((res) => {
+                if (!alive) return
+                setAllBrawlers(res.items ?? [])
+            })
+            .catch(() => {
+                if (!alive) return
+                setAllBrawlers([])
+            })
+
+        return () => {
+            alive = false
+        }
+    }, [])
+
+    useEffect(() => {
         if (!selectedRankedMap) {
             setRankedMapBrawlers([])
             return
@@ -142,6 +176,20 @@ export default function ProfilePage() {
             .map((mode) => ({ mode, maps: byMode.get(mode)! }))
     }, [rankedMaps])
 
+    const selectedPreferredBrawlers = useMemo(
+        () => preferredBrawlerIds
+            .map((id) => allBrawlers.find((item) => item.id === id))
+            .filter((item): item is { id: number; name: string } => Boolean(item)),
+        [allBrawlers, preferredBrawlerIds],
+    )
+
+    const filteredBrawlers = useMemo(() => {
+        const query = brawlerSearch.trim().toLowerCase()
+        const available = allBrawlers.filter((item) => !preferredBrawlerIds.includes(item.id))
+        if (!query) return available
+        return available.filter((item) => item.name.toLowerCase().includes(query))
+    }, [allBrawlers, brawlerSearch, preferredBrawlerIds])
+
     const onSaveTag = async () => {
         setSyncing(true)
         setErr(null)
@@ -166,6 +214,77 @@ export default function ProfilePage() {
         } finally {
             setSyncing(false)
         }
+    }
+
+    const onSaveSettings = async () => {
+        setSavingSettings(true)
+        setErr(null)
+        try {
+            const updated = await api.profileSaveSettings({ preferredDays })
+            setProfile(updated)
+            setPreferredDays(updated.preferredDays ?? 30)
+            setPreferredBrawlerIds(updated.preferredBrawlerIds ?? [])
+        } catch (e: any) {
+            setErr(e?.message ?? String(e))
+        } finally {
+            setSavingSettings(false)
+        }
+    }
+
+    const onClearSettings = async () => {
+        setSavingSettings(true)
+        setErr(null)
+        try {
+            const updated = await api.profileSaveSettings({ preferredDays: null })
+            setProfile(updated)
+            setPreferredDays(30)
+            setPreferredBrawlerIds(updated.preferredBrawlerIds ?? [])
+        } catch (e: any) {
+            setErr(e?.message ?? String(e))
+        } finally {
+            setSavingSettings(false)
+        }
+    }
+
+    const onSavePreferredBrawlers = async () => {
+        setSavingSettings(true)
+        setErr(null)
+        try {
+            const updated = await api.profileSaveSettings({ preferredBrawlerIds })
+            setProfile(updated)
+            setPreferredBrawlerIds(updated.preferredBrawlerIds ?? [])
+        } catch (e: any) {
+            setErr(e?.message ?? String(e))
+        } finally {
+            setSavingSettings(false)
+        }
+    }
+
+    const onClearPreferredBrawlers = async () => {
+        setSavingSettings(true)
+        setErr(null)
+        try {
+            const updated = await api.profileSaveSettings({ preferredBrawlerIds: null })
+            setProfile(updated)
+            setPreferredBrawlerIds([])
+            setBrawlerSearch('')
+        } catch (e: any) {
+            setErr(e?.message ?? String(e))
+        } finally {
+            setSavingSettings(false)
+        }
+    }
+
+    const addPreferredBrawler = (id: number) => {
+        setPreferredBrawlerIds((prev) => {
+            if (prev.includes(id) || prev.length >= 10) return prev
+            return [...prev, id]
+        })
+        setBrawlerSearch('')
+    }
+
+    const removePreferredBrawler = (id: number) => {
+        setPreferredBrawlerIds((prev) => prev.filter((item) => item !== id))
     }
 
     return (
@@ -335,6 +454,117 @@ export default function ProfilePage() {
                     ))}
                 </div>
             )}
+
+            <section className={s.section} style={{ marginTop: 18 }}>
+                <div className={s.sectionHeader}>
+                    <h3 className={s.sectionTitle}>Settings</h3>
+                </div>
+
+                <div className="panel">
+                    <div className={s.panelTitle}>Maps and Ranked Helper</div>
+                    <div className={s.settingsRow}>
+                        <div className="uiField" style={{ minWidth: 220 }}>
+                            <div className="uiLabel">Preferred amount of days</div>
+                            <input
+                                className="uiInput"
+                                type="number"
+                                min={7}
+                                max={60}
+                                value={preferredDays}
+                                onChange={(e) => setPreferredDays(Math.max(7, Math.min(60, Number(e.target.value) || 30)))}
+                            />
+                        </div>
+
+                        <button className="btn btnPrimary" type="button" onClick={onSaveSettings} disabled={savingSettings}>
+                            {savingSettings ? 'Saving...' : 'Save'}
+                        </button>
+
+                        <button className="btn" type="button" onClick={onClearSettings} disabled={savingSettings}>
+                            Clear
+                        </button>
+                    </div>
+                    <div className="muted2" style={{ marginTop: 10 }}>
+                        This setting is used as the default day range on Maps and Ranked Helper. If cleared, the app uses 30 days.
+                    </div>
+                </div>
+
+                <div className="panel">
+                    <div className={s.panelTitle}>Most skilled brawlers</div>
+                    <div className="muted2" style={{ marginBottom: 10 }}>
+                        Pick up to 10 brawlers. Ranked Helper will moderately favor them, and suggested cards will show a star.
+                    </div>
+
+                    <div className={s.selectedBrawlers}>
+                        {selectedPreferredBrawlers.map((item) => (
+                            <button
+                                key={item.id}
+                                className={s.selectedBrawler}
+                                type="button"
+                                onClick={() => removePreferredBrawler(item.id)}
+                                title="Remove"
+                            >
+                                <img
+                                    className={s.selectedBrawlerImg}
+                                    src={`/brawlers/${slugifyBrawler(item.name)}.webp`}
+                                    alt={item.name}
+                                    loading="lazy"
+                                    onError={(e) => {
+                                        ;(e.currentTarget as HTMLImageElement).style.visibility = 'hidden'
+                                    }}
+                                />
+                                <span>{item.name}</span>
+                            </button>
+                        ))}
+                        {selectedPreferredBrawlers.length === 0 && <div className="muted">No preferred brawlers selected yet.</div>}
+                    </div>
+
+                    <div className={s.settingsRow} style={{ marginTop: 10 }}>
+                        <div className="uiField" style={{ flex: 1, minWidth: 260 }}>
+                            <div className="uiLabel">Search brawler</div>
+                            <input
+                                className="uiInput"
+                                value={brawlerSearch}
+                                onChange={(e) => setBrawlerSearch(e.target.value)}
+                                placeholder="Search brawler..."
+                            />
+                        </div>
+                    </div>
+
+                    <div className={s.brawlerPickerGrid}>
+                        {filteredBrawlers.slice(0, 36).map((item) => (
+                            <button
+                                key={item.id}
+                                className={s.brawlerPick}
+                                type="button"
+                                disabled={preferredBrawlerIds.length >= 10}
+                                onClick={() => addPreferredBrawler(item.id)}
+                                title={item.name}
+                            >
+                                <img
+                                    className={s.brawlerPickImg}
+                                    src={`/brawlers/${slugifyBrawler(item.name)}.webp`}
+                                    alt={item.name}
+                                    loading="lazy"
+                                    onError={(e) => {
+                                        ;(e.currentTarget as HTMLImageElement).style.visibility = 'hidden'
+                                    }}
+                                />
+                                <span>{item.name}</span>
+                            </button>
+                        ))}
+                    </div>
+
+                    <div className={s.settingsRow} style={{ marginTop: 12 }}>
+                        <button className="btn btnPrimary" type="button" onClick={onSavePreferredBrawlers} disabled={savingSettings}>
+                            {savingSettings ? 'Saving...' : 'Save'}
+                        </button>
+
+                        <button className="btn" type="button" onClick={onClearPreferredBrawlers} disabled={savingSettings}>
+                            Clear
+                        </button>
+                    </div>
+                </div>
+            </section>
         </div>
     )
 }
