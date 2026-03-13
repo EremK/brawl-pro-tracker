@@ -1,6 +1,9 @@
 import { Column, CreateDateColumn, Entity, Index, PrimaryColumn } from 'typeorm';
 
 @Entity({ name: 'battles' })
+@Index('IDX_battles_map_battle_time', ['map', 'battleTime'])
+@Index('IDX_battles_category_map_battle_time', ['category', 'map', 'battleTime'])
+@Index('IDX_battles_category_mode_map_battle_time', ['category', 'mode', 'map', 'battleTime'])
 export class BattleEntity {
     @PrimaryColumn({ type: 'varchar', length: 64 })
     battleId!: string;

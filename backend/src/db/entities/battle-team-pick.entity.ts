@@ -2,6 +2,7 @@ import { Column, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
 
 @Entity({ name: 'battle_team_picks' })
 @Index(['battleId', 'side'], { unique: true })
+@Index('IDX_battle_team_picks_battle_pro_team', ['battleId', 'isProSide', 'teamSize'])
 export class BattleTeamPickEntity {
     @PrimaryGeneratedColumn('uuid')
     id!: string;

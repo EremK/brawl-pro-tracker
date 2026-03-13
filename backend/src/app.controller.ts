@@ -189,10 +189,10 @@ export class AppController {
     const whereParts: string[] = []
     const baseParams: any[] = []
 
-    baseParams.push(`%${map.trim()}%`) // $1
+    baseParams.push(map.trim())        // $1
     baseParams.push(since)             // $2
 
-    whereParts.push(`b."map" ILIKE $1`)
+    whereParts.push(`b."map" = $1`)
     whereParts.push(`b."battleTime" >= $2`)
     whereParts.push(`b."category" = 'ranked'`)
 
@@ -553,7 +553,7 @@ export class AppController {
       .addSelect('COUNT(*)', 'picks')
       .addSelect(`SUM(CASE WHEN b.result = 'victory' THEN 1 ELSE 0 END)`, 'wins')
       .addSelect('MAX(b.battleTime)', 'lastSeen')
-      .where('b.map ILIKE :map', { map: `%${map.trim()}%` })
+      .where('b.map = :map', { map: map.trim() })
       .andWhere('b.battleTime >= :since', { since });
 
     if (category !== 'all') {
@@ -814,7 +814,7 @@ export class AppController {
 
     // params: $1 mapLike, $2 since, (optional $3 mode), then minGames, limit
     const params: any[] = []
-    params.push(`%${map.trim()}%`) // $1
+    params.push(map.trim())        // $1
     params.push(since)             // $2
 
     let whereExtra = ` AND b."category" = 'ranked' `
@@ -843,7 +843,7 @@ export class AppController {
         ON pPro."battleId" = b."battleId" AND pPro."isProSide" = true
       INNER JOIN "battle_team_picks" pEn
         ON pEn."battleId" = b."battleId" AND pEn."isProSide" = false
-      WHERE b."map" ILIKE $1
+      WHERE b."map" = $1
         AND b."battleTime" >= $2
         ${whereExtra}
         AND pPro."teamSize" IN (3,5)
@@ -974,7 +974,7 @@ export class AppController {
     // draw -> 0 wins (keeps it simple)
 
     const params: any[] = [];
-    params.push(`%${map.trim()}%`); // $1 map ilike
+    params.push(map.trim());        // $1 map
     params.push(since);             // $2 since
 
     let whereExtra = '';
@@ -1005,7 +1005,7 @@ export class AppController {
         INNER JOIN "battles" b ON b."battleId" = p."battleId"
         CROSS JOIN LATERAL unnest(ARRAY[p."b1", p."b2", p."b3", p."b4", p."b5"]) AS bid
         WHERE bid IS NOT NULL
-          AND b."map" ILIKE $1
+          AND b."map" = $1
           AND b."battleTime" >= $2
           ${whereExtra}
         GROUP BY bid
@@ -1066,7 +1066,7 @@ export class AppController {
       .addSelect(`SUM(CASE WHEN b.result = 'defeat' THEN 1 ELSE 0 END)`, 'proLosses')
       .addSelect(`SUM(CASE WHEN b.result = 'draw' THEN 1 ELSE 0 END)`, 'draws')
       .addSelect('MAX(b.battleTime)', 'lastSeen')
-      .where('b.map ILIKE :map', { map: `%${map.trim()}%` })
+      .where('b.map = :map', { map: map.trim() })
       .andWhere('b.battleTime >= :since', { since });
 
     qb.andWhere('pPro.teamSize IN (3, 5)');

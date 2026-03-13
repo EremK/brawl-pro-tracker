@@ -373,6 +373,7 @@
     /* ✅ "max 2 rows visible" — pick a reasonable card height budget */
     /* tweak 220px if your cards are smaller/bigger */
     max-height: 350px;
+    min-height: 350px;
 }
 
 /* responsive */

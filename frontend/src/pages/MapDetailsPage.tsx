@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../shared/api'
+import { useAuth } from '../shared/auth'
 import type {
     Category,
     MatchupItem,
@@ -32,6 +33,7 @@ function wrClass(wr: number) {
 }
 
 export default function MapDetailsPage() {
+    const { user } = useAuth()
     const { map: mapParam } = useParams()
     const mapName = decodeURIComponent(mapParam ?? '')
     const [sp] = useSearchParams()
@@ -39,11 +41,33 @@ export default function MapDetailsPage() {
     const catFromUrl = (sp.get('cat') as Category | null) ?? null
 
     // controls
-    const [days, setDays] = useState(7)
+    const [days, setDays] = useState(30)
     const [category, setCategory] = useState<Category>('ranked')
     const [mode, setMode] = useState<string>(modeFromUrl ?? 'all')
     const [showMatchups, setShowMatchups] = useState(false)
     const [minGames, setMinGames] = useState(3)
+
+    useEffect(() => {
+        if (!user) {
+            setDays(30)
+            return
+        }
+
+        let alive = true
+        api.profileMe()
+            .then((profile) => {
+                if (!alive) return
+                setDays(profile.preferredDays ?? 30)
+            })
+            .catch(() => {
+                if (!alive) return
+                setDays(30)
+            })
+
+        return () => {
+            alive = false
+        }
+    }, [user])
 
     useEffect(() => {
         if (modeFromUrl) setMode(modeFromUrl)
@@ -257,10 +281,10 @@ export default function MapDetailsPage() {
                             <input
                                 className="uiInput"
                                 type="number"
-                                min={1}
-                                max={30}
+                                min={7}
+                                max={60}
                                 value={days}
-                                onChange={(e) => setDays(Math.max(1, Math.min(30, Number(e.target.value) || 7)))}
+                                onChange={(e) => setDays(Math.max(7, Math.min(60, Number(e.target.value) || 30)))}
                             />
                         </div>
 
