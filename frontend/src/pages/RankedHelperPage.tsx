@@ -265,6 +265,9 @@ export default function RankedHelperPage() {
                                     const v = e.target.value
                                     if (v.startsWith('__hdr__')) return 
                                     const [m, mp] = v.split('||')
+                                    setAlly([])
+                                    setEnemy([])
+                                    setResult(null)
                                     setMode(m === 'unknown' ? '' : (m ?? ''))
                                     setMap(mp ?? '')
                                 }}
