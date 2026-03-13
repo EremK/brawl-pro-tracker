@@ -1,3 +1,4 @@
+import type { ReactElement } from 'react'
 import { NavLink, Route, Routes, Link } from 'react-router-dom'
 import MapsPage from './pages/MapsPage'
 import TrackedPage from './pages/TrackedPage'
@@ -13,11 +14,11 @@ import s from './App.module.scss'
 const linkClass = ({ isActive }: { isActive: boolean }) =>
   `${s.navLink} ${isActive ? s.active : ''}`
 
-function AdminOnlyPage({ isAdmin, child }: { isAdmin: boolean; child: JSX.Element }) {
+function AdminOnlyPage({ isAdmin, child }: { isAdmin: boolean; child: ReactElement }) {
   return isAdmin ? child : <MapsPage />
 }
 
-function AuthOnlyPage({ signedIn, child }: { signedIn: boolean; child: JSX.Element }) {
+function AuthOnlyPage({ signedIn, child }: { signedIn: boolean; child: ReactElement }) {
   return signedIn ? child : <MapsPage />
 }
 
